@@ -1,0 +1,17 @@
+# Raw data, database, and output files
+output/
+data/
+
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE-specific files (PyCharm)
+.idea/

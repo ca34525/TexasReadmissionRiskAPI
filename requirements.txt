@@ -1,0 +1,21 @@
+# Data & Notebooks
+duckdb
+pandas
+pyarrow
+jupyterlab
+fhir.resources
+orjson
+
+# ML & Explainability
+scikit-learn
+xgboost
+shap
+matplotlib
+seaborn
+
+# API
+fastapi
+uvicorn[standard]
+
+# Performance
+tqdm

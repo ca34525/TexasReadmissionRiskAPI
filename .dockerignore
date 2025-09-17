@@ -1,0 +1,22 @@
+# .dockerignore
+
+# Ignore the entire data directory - THIS IS THE MOST IMPORTANT ONE
+data/
+
+# Ignore the output directory where results are saved
+output/
+
+# Ignore Python virtual environments
+.venv/
+venv/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore the DuckDB database file
+*.db
+*.db.wal
+
+# Ignore Git directory
+.git/
