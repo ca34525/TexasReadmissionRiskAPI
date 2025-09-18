@@ -92,3 +92,16 @@ The work completed thus far establishes a strong foundation. The next logical st
 -   **API Deployment:** Develop a **FastAPI** endpoint to serve the trained XGBoost model, allowing for real-time prediction requests.
     
 -   **User Interface:** Create a basic UI that can interact with the API. This will allow users to input patient characteristics and receive a readmission risk score, demonstrating the model's practical application.
+-   **Improve Performance:** Improve the models performance with better feature engineering.
+--- Classification Report ---
+              precision    recall  f1-score   support
+
+           0       0.94      0.74      0.83     17107
+           1       0.39      0.78      0.52      3707
+
+    accuracy                           0.75     20814
+   macro avg       0.67      0.76      0.68     20814
+weighted avg       0.84      0.75      0.77     20814
+
+--- ROC AUC Score ---
+0.8157
