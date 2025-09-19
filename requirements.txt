@@ -9,6 +9,8 @@ orjson
 # ML & Explainability
 scikit-learn
 xgboost
+lightgbm
+catboost
 shap
 matplotlib
 seaborn
