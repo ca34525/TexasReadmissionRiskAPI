@@ -1,6 +1,6 @@
 # Texas Hospital Readmission Prediction
 
-This project demonstrates an end-to-end data science workflow for predicting 30-day hospital readmissions. It begins with raw synthetic patient data in FHIR format, processes it through an ETL pipeline into a structured database, engineers features, trains predictive models, and concludes with an exploratory data analysis.
+This project demonstrates an end-to-end data science workflow for predicting 30-day hospital readmissions. It begins with raw synthetic patient data in FHIR format, processes it through an ETL pipeline into a structured database, engineers features, performs exploratory data analysis, and concludes with predictive modeling.
 
 The entire environment is containerized with Docker for full reproducibility.
 
@@ -16,7 +16,7 @@ The project is organized into a series of Jupyter notebooks, designed to be run 
 
 -----
 
-## Next Steps: Deployment Vision 🚀
+## Next Steps: Deployment Vision 
 
 While the notebooks serve as the development and research environment, the ultimate goal is to create a deployable, end-to-end application. The plan involves the following steps:
 
