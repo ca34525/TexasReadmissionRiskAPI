@@ -66,6 +66,9 @@ def create_features(db_path: Path, output_path: Path):
         readmissions.patient_id,
         readmissions.readmitted_within_30_days,
         readmissions.admission_date,
+        readmissions.discharge_date,
+        readmissions.next_admission_date,
+        readmissions.days_to_next_admission,
         DATE_DIFF('day', readmissions.admission_date, readmissions.discharge_date)
             AS length_of_stay,
         DATE_DIFF('year', p.BirthDate, readmissions.admission_date)
@@ -144,8 +147,20 @@ def create_features(db_path: Path, output_path: Path):
             f"num_{feature_name}"
         ].fillna(0)
 
-    # --- 6. Save Final Dataset & Cleanup ---
-    logging.info("Step 6: Saving final dataset and cleaning up...")
+    # --- 6. Final Cleanup ---
+    logging.info("Step 6: Cleaning up columns before saving...")
+    # These columns were intermediate and are not features for the model
+    columns_to_drop = [
+        "patient_id",
+        "admission_date",
+        "discharge_date",
+        "next_admission_date",
+        "days_to_next_admission",
+    ]
+    model_df = model_df.drop(columns=columns_to_drop)
+
+    # --- 7. Save Final Dataset & Cleanup ---
+    logging.info("Step 7: Saving final dataset and cleaning up...")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model_df.to_parquet(output_path, index=False)
     con.close()

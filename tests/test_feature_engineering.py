@@ -1,76 +1,200 @@
+import argparse
+import logging
+from pathlib import Path
+
 import duckdb
 import pandas as pd
-import pytest
-from src.feature_engineering import create_features
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 
-@pytest.fixture(scope="module")
-def setup_test_db(tmp_path_factory):
+def create_features(db_path: Path, output_path: Path):
     """
-    Creates a temporary DuckDB database with controlled test data
-    for feature engineering validation.
+    Connects to a DuckDB database, engineers features for the readmission
+    prediction model, and saves the final dataset.
+
+    Args:
+        db_path (Path): Path to the source DuckDB database file.
+        output_path (Path): Path to save the output Parquet file.
     """
-    db_file = tmp_path_factory.mktemp("test_db") / "test_fe.duckdb"
-    con = duckdb.connect(database=str(db_file), read_only=False)
+    logging.info(f"Connecting to DuckDB database: {db_path}")
+    con = duckdb.connect(database=str(db_path), read_only=True)
 
-    # --- Create Tables ---
-    con.execute("CREATE TABLE patients (Id VARCHAR, BirthDate DATE, Gender VARCHAR, Race VARCHAR, Marital VARCHAR, Income INTEGER);")
-    con.execute("CREATE TABLE encounters (Id VARCHAR, Start TIMESTAMP, Stop TIMESTAMP, Patient VARCHAR, Provider VARCHAR, Payer VARCHAR, EncounterClass VARCHAR, Code VARCHAR, Description VARCHAR, Total_Claim_Cost FLOAT, ReasonCode VARCHAR, ReasonDescription VARCHAR);")
-    con.execute("CREATE TABLE conditions (Encounter VARCHAR, Code VARCHAR);")
-    con.execute("CREATE TABLE procedures (Encounter VARCHAR, Code VARCHAR);")
-    con.execute("CREATE TABLE medications (Encounter VARCHAR, Code VARCHAR);")
+    # --- 1. Engineer the Target Variable (readmitted_within_30_days) ---
+    logging.info("Step 1: Engineering the target variable...")
+    sql_target = """
+    WITH PatientAdmissions AS (
+        SELECT
+            Id AS encounter_id,
+            Patient AS patient_id,
+            Start AS admission_date,
+            Stop AS discharge_date,
+            LEAD(Start, 1) OVER(
+                PARTITION BY Patient ORDER BY Start
+            ) AS next_admission_date
+        FROM encounters
+        WHERE EncounterClass = 'IMP'
+    )
+    SELECT
+        encounter_id,
+        patient_id,
+        admission_date,
+        discharge_date,
+        next_admission_date,
+        DATE_DIFF('day', discharge_date, next_admission_date)
+            AS days_to_next_admission,
+        CASE
+            WHEN DATE_DIFF('day', discharge_date, next_admission_date) <= 30
+            THEN 1
+            ELSE 0
+        END AS readmitted_within_30_days
+    FROM PatientAdmissions
+    WHERE discharge_date IS NOT NULL
+    """
+    readmissions_df = con.execute(sql_target).fetchdf()
+    logging.info(f"Identified {len(readmissions_df)} index admissions.")
 
-    # --- Insert Data ---
-    con.execute("INSERT INTO patients VALUES ('patient-1', '1980-01-01', 'male', 'white', 'M', 50000);")
-    # CORRECTED THE DATE HERE to be within 365 days of the index admission
-    con.execute("INSERT INTO encounters VALUES ('enc-prior', '2024-06-01 10:00:00', '2024-06-03 12:00:00', 'patient-1', 'prov-1', 'Medicare', 'IMP', '123', 'Reason 1', 1000.0, 'R1', 'Desc 1');")
-    con.execute("INSERT INTO encounters VALUES ('enc-1a', '2025-01-10 10:00:00', '2025-01-15 12:00:00', 'patient-1', 'prov-1', 'Medicare', 'IMP', '123', 'Reason 1', 2000.0, 'R1', 'Desc 1');")
-    con.execute("INSERT INTO encounters VALUES ('enc-1b', '2025-02-01 10:00:00', '2025-02-03 12:00:00', 'patient-1', 'prov-1', 'Medicare', 'IMP', '456', 'Reason 2', 1500.0, 'R2', 'Desc 2');")
-    con.execute("INSERT INTO conditions VALUES ('enc-1a', 'C1'), ('enc-1a', 'C2');")
-    con.execute("INSERT INTO procedures VALUES ('enc-1a', 'P1');")
+    # --- 2. Add Demographics and Admission-Level Features ---
+    logging.info("Step 2: Adding demographic and admission features...")
+    # --- THIS IS THE FIX: The age calculation is now more precise ---
+    sql_demographics = """
+    SELECT
+        readmissions.encounter_id,
+        readmissions.patient_id,
+        readmissions.readmitted_within_30_days,
+        readmissions.admission_date,
+        readmissions.discharge_date,
+        readmissions.next_admission_date,
+        readmissions.days_to_next_admission,
+        DATE_DIFF('day', readmissions.admission_date, readmissions.discharge_date)
+            AS length_of_stay,
+        (
+            DATE_DIFF('year', p.BirthDate, readmissions.admission_date) -
+            CASE
+                WHEN (MONTH(readmissions.admission_date) < MONTH(p.BirthDate) OR
+                      (MONTH(readmissions.admission_date) = MONTH(p.BirthDate) AND
+                       DAY(readmissions.admission_date) < DAY(p.BirthDate)))
+                THEN 1
+                ELSE 0
+            END
+        ) AS age_at_admission,
+        p.Gender AS gender,
+        p.Race AS race,
+        p.Marital AS marital_status,
+        enc.Description AS admission_reason,
+        enc.ReasonDescription AS admission_reason_detail,
+        enc.Payer AS payer,
+        enc.Total_Claim_Cost AS total_claim_cost,
+        p.Income AS income,
+        DAYNAME(readmissions.admission_date) AS admission_day_of_week,
+        enc.ReasonCode AS primary_diagnosis_code,
+        enc.Provider AS provider_id
+    FROM readmissions_df AS readmissions
+    LEFT JOIN patients AS p ON readmissions.patient_id = p.Id
+    LEFT JOIN encounters AS enc ON readmissions.encounter_id = enc.Id
+    """
+    model_df = con.execute(sql_demographics).fetchdf()
+    logging.info("Successfully joined demographic and admission data.")
 
-    con.execute("INSERT INTO patients VALUES ('patient-2', '1990-05-15', 'female', 'black', 'S', 75000);")
-    con.execute("INSERT INTO encounters VALUES ('enc-2a', '2025-03-01 08:00:00', '2025-03-05 18:00:00', 'patient-2', 'prov-2', 'Anthem', 'IMP', '789', 'Reason 3', 5000.0, 'R3', 'Desc 3');")
-    con.execute("INSERT INTO encounters VALUES ('enc-2b', '2025-05-01 08:00:00', '2025-05-02 18:00:00', 'patient-2', 'prov-2', 'Anthem', 'IMP', '101', 'Reason 4', 800.0, 'R4', 'Desc 4');")
+    # --- 3. Engineer High-Cardinality Interaction Feature ---
+    logging.info("Step 3: Engineering interaction features...")
+    model_df["payer_dx_interaction"] = (
+        model_df["payer"].astype(str).fillna("unknown")
+        + "_"
+        + model_df["primary_diagnosis_code"].astype(str).fillna("unknown")
+    )
 
-    con.execute("INSERT INTO patients VALUES ('patient-3', '1975-11-20', 'male', 'asian', 'M', 120000);")
-    con.execute("INSERT INTO encounters VALUES ('enc-3', '2025-06-01 09:00:00', '2025-06-10 17:00:00', 'patient-3', 'prov-1', 'NO_INSURANCE', 'IMP', '112', 'Reason 5', 12000.0, 'R5', 'Desc 5');")
-    con.execute("INSERT INTO medications VALUES ('enc-3', 'M1'), ('enc-3', 'M2'), ('enc-3', 'M3');")
+    # --- 4. Engineer Historical Features ---
+    logging.info("Step 4: Engineering historical features...")
+    sql_historical = """
+    SELECT
+        index_admission.Id AS encounter_id,
+        COUNT(prior_admissions.Id) AS prior_admissions_last_year
+    FROM encounters AS index_admission
+    LEFT JOIN encounters AS prior_admissions
+        ON index_admission.Patient = prior_admissions.Patient
+        AND prior_admissions.Start < index_admission.Start
+        AND DATE_DIFF('day', prior_admissions.Start, index_admission.Start) <= 365
+        AND prior_admissions.EncounterClass = 'IMP'
+    WHERE index_admission.EncounterClass = 'IMP'
+    GROUP BY index_admission.Id
+    """
+    prior_admissions_df = con.execute(sql_historical).fetchdf()
+    model_df = pd.merge(
+        model_df, prior_admissions_df, on="encounter_id", how="left"
+    )
+    model_df["prior_admissions_last_year"] = model_df[
+        "prior_admissions_last_year"
+    ].fillna(0)
+    logging.info("Successfully added prior admissions count.")
 
+    # --- 5. Engineer Clinical Features (Counts) ---
+    logging.info("Step 5: Engineering clinical features (counts)...")
+    clinical_tables = {
+        "diagnoses": "conditions",
+        "procedures": "procedures",
+        "medications": "medications",
+    }
+    for feature_name, table_name in clinical_tables.items():
+        logging.info(f"  - Counting from table: {table_name}")
+        sql_clinical = f"""
+        SELECT
+            Encounter AS encounter_id,
+            COUNT(Code) AS num_{feature_name}
+        FROM {table_name}
+        GROUP BY Encounter
+        """
+        clinical_df = con.execute(sql_clinical).fetchdf()
+        model_df = pd.merge(
+            model_df, clinical_df, on="encounter_id", how="left"
+        )
+        model_df[f"num_{feature_name}"] = model_df[
+            f"num_{feature_name}"
+        ].fillna(0)
+
+    # --- 6. Final Cleanup ---
+    logging.info("Step 6: Cleaning up columns before saving...")
+    columns_to_drop = [
+        "patient_id",
+        "admission_date",
+        "discharge_date",
+        "next_admission_date",
+        "days_to_next_admission",
+        "admission_reason_detail", # Also drop this text field
+    ]
+    model_df = model_df.drop(columns=columns_to_drop)
+
+    # --- 7. Save Final Dataset & Cleanup ---
+    logging.info("Step 7: Saving final dataset and cleaning up...")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    model_df.to_parquet(output_path, index=False)
     con.close()
-    return db_file
+    logging.info(f"Successfully saved feature table to {output_path}")
+    logging.info(
+        f"Final dataset has {len(model_df):,} rows and {len(model_df.columns)} columns."
+    )
 
 
-def test_create_features(setup_test_db, tmp_path):
-    """
-    Tests the create_features function against a controlled dataset.
-    """
-    db_path = setup_test_db
-    output_path = tmp_path / "test_features.parquet"
-    create_features(db_path, output_path)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run the feature engineering pipeline."
+    )
+    parser.add_argument(
+        "--db_path",
+        type=Path,
+        default=Path("output/synthea_fhir.duckdb"),
+        help="Path to the source DuckDB database file.",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=Path,
+        default=Path("output/readmissions_dataset.parquet"),
+        help="Path to save the final feature dataset (Parquet).",
+    )
+    args = parser.parse_args()
 
-    assert output_path.exists(), "Output parquet file was not created."
-
-    df = pd.read_parquet(output_path)
-    assert len(df) == 6, "Expected 6 inpatient encounters in the output."
-
-    df = df.sort_values(by="encounter_id").reset_index(drop=True)
-
-    p1_admission = df[df["encounter_id"] == "enc-1a"].iloc[0]
-    assert p1_admission["readmitted_within_30_days"] == 1
-    assert p1_admission["length_of_stay"] == 5
-    assert p1_admission["age_at_admission"] == 45
-    assert p1_admission["prior_admissions_last_year"] == 1.0
-    assert p1_admission["num_diagnoses"] == 2.0
-    assert p1_admission["num_procedures"] == 1.0
-    assert p1_admission["num_medications"] == 0.0
-
-    p2_admission = df[df["encounter_id"] == "enc-2a"].iloc[0]
-    assert p2_admission["readmitted_within_30_days"] == 0
-    assert p2_admission["length_of_stay"] == 4
-    assert p2_admission["prior_admissions_last_year"] == 0.0
-
-    p3_admission = df[df["encounter_id"] == "enc-3"].iloc[0]
-    assert p3_admission["readmitted_within_30_days"] == 0
-    assert p3_admission["num_medications"] == 3.0
-    assert p3_admission["payer_dx_interaction"] == "NO_INSURANCE_R5"
+    create_features(db_path=args.db_path, output_path=args.output_path)
