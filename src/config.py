@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(os.getcwd())
 DATA_DIR = PROJECT_ROOT / "data"
 FHIR_DIR = DATA_DIR / "fhir"
 OUTPUT_DIR = PROJECT_ROOT / "output"
+MODELS_DIR = PROJECT_ROOT / "models"
 
 
 # --- DATABASE CONFIGURATION ---
@@ -35,3 +36,17 @@ BATCH_SIZE = 5000
 # Number of CPU cores to use for parallel processing.
 # os.cpu_count() uses all available cores.
 CPU_COUNT = os.cpu_count()
+
+# --- MODELING & API CONFIGURATION ---
+MODEL_FILE = MODELS_DIR / "catboost_model.cbm"
+TARGET_VARIABLE = "readmitted_within_30_days"
+
+# List of categorical features for the model
+CATEGORICAL_FEATURES = [
+    "gender", "race", "marital_status", "admission_reason",
+    "payer", "admission_day_of_week", "primary_diagnosis_code",
+    "provider_id", "payer_dx_interaction",
+]
+
+# The decision threshold determined from the notebook analysis.
+FINAL_THRESHOLD = 0.7
