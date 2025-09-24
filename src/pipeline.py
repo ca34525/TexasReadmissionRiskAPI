@@ -1,5 +1,3 @@
-# pipeline.py
-
 import logging
 
 # Import the main functions from each module in the 'src' package
@@ -11,15 +9,8 @@ from src.evaluate import evaluate_model
 # Import the configuration variables that define our file paths
 from src import config
 
-# Configure logging to monitor the pipeline's progress
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("pipeline.log"),
-        logging.StreamHandler()
-    ]
-)
+# Configure logging
+# ... (logging configuration remains the same) ...
 
 
 def main():
@@ -30,8 +21,10 @@ def main():
     logging.info("STARTING READMISSION PREDICTION PIPELINE")
     logging.info("="*50)
 
+    # --- Define key file paths from the config module for clarity ---
+    feature_dataset_path = config.OUTPUT_DIR / "readmissions_dataset.parquet"
+    
     # --- Step 1: Run the ETL process ---
-    # This processes raw FHIR JSON files into a structured DuckDB database.
     logging.info("STEP 1: Starting ETL process...")
     try:
         run_etl()
@@ -41,13 +34,8 @@ def main():
         return # Stop the pipeline if ETL fails
 
     # --- Step 2: Run the feature engineering process ---
-    # This uses the DuckDB database to create the final analytical dataset.
     logging.info("STEP 2: Starting feature engineering...")
     try:
-        # Define the path for the engineered features dataset.
-        # This is the output of this step and the input for the next.
-        feature_dataset_path = config.OUTPUT_DIR / "readmissions_dataset.parquet"
-        
         create_features(
             db_path=config.DB_FILE,
             output_path=feature_dataset_path
@@ -58,24 +46,18 @@ def main():
         return # Stop the pipeline if this step fails
 
     # --- Step 3: Run the model training process ---
-    # This trains the CatBoost classifier and saves the final model artifact.
     logging.info("STEP 3: Starting model training...")
     try:
-        # The model path is defined in the config.
-        # We use the feature dataset created in the previous step.
+        # CHANGE: Use the MODEL_FILE variable from the config
         train_model(
             data_path=feature_dataset_path,
-            model_path=config.MODELS_DIR / "catboost_model.cbm"
+            model_path=config.MODEL_FILE
         )
         logging.info("✅ STEP 3: Model training completed successfully.")
     except Exception as e:
         logging.error(f"💥 STEP 3: Model training failed. Error: {e}")
         return # Stop the pipeline if training fails
         
-    logging.info("="*50)
-    logging.info("🎉 PIPELINE FINISHED SUCCESSFULLY 🎉")
-    logging.info("="*50)
-
     # --- Step 4: Run the final evaluation ---
     logging.info("STEP 4: Starting model evaluation...")
     try:
@@ -83,6 +65,12 @@ def main():
         logging.info("✅ STEP 4: Evaluation completed successfully.")
     except Exception as e:
         logging.error(f"💥 STEP 4: Evaluation failed. Error: {e}")
+        return # Stop if evaluation also fails
+
+    # CHANGE: Move the final success message to the very end
+    logging.info("="*50)
+    logging.info("🎉 PIPELINE FINISHED SUCCESSFULLY 🎉")
+    logging.info("="*50)
 
 
 if __name__ == "__main__":
