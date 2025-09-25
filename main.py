@@ -1,77 +1,149 @@
 # main.py
 
+import json
 import logging
+from pathlib import Path
 
+import catboost as cb
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-# --- Core Prediction Logic ---
-# We import the function that contains all the logic for making a prediction.
-# The API's job is simply to expose this function to the web.
+# --- Import project modules ---
+# We need the config for file paths and feature lists
+from src import config
+# We still need the original prediction logic for the ID-based endpoint
 from src.predict import make_prediction
 
-# Configure logging
+# --- Configure logging ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+# --- Load Model and Metadata at Startup ---
+# This is a performance optimization.  By loading the model and metadata once
+# when the application starts, we avoid reloading them for every single API request.
+try:
+    model = cb.CatBoostClassifier()
+    model.load_model(str(config.MODEL_FILE))
+
+    metadata_path = config.MODEL_FILE.parent / "model_metadata.json"
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+    THRESHOLD = metadata["optimal_threshold"]
+    logging.info("Model and metadata loaded successfully at startup.")
+except FileNotFoundError as e:
+    logging.error(f"FATAL: Model or metadata not found at startup: {e}")
+    # In a real application, you might exit here or handle it more gracefully
+    model = None
+    THRESHOLD = 0.7 # A default fallback
 
 # --- API Initialization ---
-# Create a FastAPI application instance. This is the main point of interaction.
 app = FastAPI(
     title="Readmission Prediction API",
-    description="An API to predict the risk of hospital readmission for a given patient encounter.",
+    description="An API to predict hospital readmission risk.",
     version="1.0.0",
 )
 
-
 # --- Pydantic Models (Data Validation) ---
-# Pydantic models define the structure and data types for your API's inputs
-# and outputs. FastAPI uses them to validate incoming requests and format
-# outgoing responses, which helps prevent errors and provides great documentation.
+
+class PredictionFeatures(BaseModel):
+    """
+    Defines the structure for the JSON payload for the interactive endpoint.
+    These are all the features the model needs to make a prediction.
+    FastAPI will automatically validate that incoming data matches this structure.
+    """
+    length_of_stay: int = Field(..., example=7)
+    age_at_admission: int = Field(..., example=50)
+    gender: str = Field(..., example="male")
+    race: str = Field(..., example="White")
+    marital_status: str = Field(..., example="M")
+    admission_reason: str = Field(..., example="Encounter for problem (procedure)")
+    payer: str = Field(..., example="Medicare")
+    total_claim_cost: float = Field(..., example=26483)
+    income: int = Field(..., example=74739)
+    admission_day_of_week: str = Field(..., example="Tuesday")
+    primary_diagnosis_code: str = Field(..., example="424132000")
+    provider_id: str = Field(..., example="us-npi|9999868992")
+    prior_admissions_last_year: int = Field(..., example=2)
+    num_diagnoses: int = Field(..., example=1)
+    num_procedures: int = Field(..., example=9)
+    num_medications: int = Field(..., example=1)
 
 class PredictionResponse(BaseModel):
-    """Defines the structure of the JSON response for a prediction."""
-    encounter_id: str = Field(..., example="a933a39e-b98f-4171-8b9a-8a0a861d3e1d")
+    """Defines the structure for the ID-based prediction response."""
+    encounter_id: str
+    readmission_probability: float
+    prediction: int
+    threshold: float
+
+class InteractivePredictionResponse(BaseModel):
+    """Defines the structure for the interactive prediction response."""
     readmission_probability: float = Field(..., example=0.8245)
     prediction: int = Field(..., example=1, description="1 for high risk, 0 for low risk.")
     threshold: float = Field(..., example=0.7)
 
 
 # --- API Endpoints ---
-# Endpoints are the specific URLs that users of your API will access.
-# The decorator (@app.get, @app.post, etc.) tells FastAPI how to handle
-# requests to that URL.
 
 @app.get("/", tags=["General"])
 def read_root():
-    """
-    A simple root endpoint to confirm the API is running.
-    """
-    return {"message": "Welcome to the Readmission Prediction API. Go to /docs for more info."}
+    return {"message": "Welcome! Navigate to /docs for API documentation."}
 
 
-@app.get("/predict/{encounter_id}", response_model=PredictionResponse, tags=["Prediction"])
+@app.get("/predict/{encounter_id}", response_model=PredictionResponse, tags=["ID-Based Prediction"])
 def get_prediction(encounter_id: str):
     """
-    Accepts an encounter_id, fetches data, engineers features, and
-    returns a real-time readmission risk score.
+    Predicts readmission risk based on a historical encounter_id.
     """
-    logging.info(f"Received prediction request for encounter_id: {encounter_id}")
-
-    # Call our core logic from the predict.py script
+    logging.info(f"Received ID-based prediction request for: {encounter_id}")
     result = make_prediction(encounter_id)
-
-    # Handle cases where the prediction logic returns an error
-    # (e.g., encounter_id not found). We turn this into a standard
-    # HTTP error response.
     if "error" in result:
         logging.error(f"Prediction failed for {encounter_id}: {result['error']}")
-        raise HTTPException(
-            status_code=404,
-            detail=result["error"]
-        )
-
-    logging.info(f"Successfully generated prediction for {encounter_id}")
+        raise HTTPException(status_code=404, detail=result["error"])
     return result
+
+
+@app.post("/predict/interactive", response_model=InteractivePredictionResponse, tags=["Interactive Prediction"])
+def post_interactive_prediction(features: PredictionFeatures):
+    """
+    Predicts readmission risk from a JSON payload of patient features.
+    """
+    if not model:
+        raise HTTPException(status_code=500, detail="Model is not loaded.")
+        
+    logging.info("Received interactive prediction request.")
+    
+    # 1.  Convert the Pydantic model to a dictionary
+    features_dict = features.model_dump()
+    
+    # 2.  Engineer the interaction feature, just like in training
+    features_dict["payer_dx_interaction"] = (
+        str(features_dict.get("payer", "unknown")) + "_" +
+        str(features_dict.get("primary_diagnosis_code", "unknown"))
+    )
+    
+    # 3.  Create a single-row DataFrame
+    df = pd.DataFrame([features_dict])
+    
+    # 4.  Preprocess categorical features exactly as done in training
+    for col in config.CATEGORICAL_FEATURES:
+        if col in df.columns:
+            df[col] = df[col].astype(str).fillna("missing").astype("category")
+
+    # 5.  Ensure column order matches the model's expectation
+    df = df.reindex(columns=model.feature_names_, fill_value=0)
+    
+    # 6.  Make the prediction
+    pred_proba = model.predict_proba(df)[0, 1]
+    prediction = 1 if pred_proba >= THRESHOLD else 0
+
+    logging.info(f"Generated interactive prediction.  Probability: {pred_proba:.4f}")
+    
+    return {
+        "readmission_probability": pred_proba,
+        "prediction": prediction,
+        "threshold": THRESHOLD,
+    }
+
