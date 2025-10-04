@@ -33,14 +33,13 @@ jobs:
       - name: Build Docker image
         run: docker build -t readmission-api .
 
-      # --- THIS STEP IS NOW CORRECTED ---
       - name: Run training pipeline on sample data
         run: |
           docker run --rm \
             -v ./sample_data:/app/data \
             -v ./output:/app/output \
             -v ./models:/app/models \
-            readmission-api python src/pipeline.py # Corrected path
+            readmission-api python -m src.pipeline
 
       - name: Run ETL integration tests on generated database
         run: |
