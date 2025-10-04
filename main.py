@@ -48,28 +48,33 @@ app = FastAPI(
 
 # --- Pydantic Models (Data Validation) ---
 
+# =============================================================================
+# ADJUSTMENT START: Updated Pydantic 'example' to 'json_schema_extra'
+# The 'example' keyword argument is deprecated in Pydantic v2. The correct
+# way to provide examples for OpenAPI documentation is via 'json_schema_extra'.
+# =============================================================================
 class PredictionFeatures(BaseModel):
     """
     Defines the structure for the JSON payload for the interactive endpoint.
     These are all the features the model needs to make a prediction.
     FastAPI will automatically validate that incoming data matches this structure.
     """
-    length_of_stay: int = Field(..., example=7)
-    age_at_admission: int = Field(..., example=50)
-    gender: str = Field(..., example="male")
-    race: str = Field(..., example="White")
-    marital_status: str = Field(..., example="M")
-    admission_reason: str = Field(..., example="Encounter for problem (procedure)")
-    payer: str = Field(..., example="Medicare")
-    total_claim_cost: float = Field(..., example=26483)
-    income: int = Field(..., example=74739)
-    admission_day_of_week: str = Field(..., example="Tuesday")
-    primary_diagnosis_code: str = Field(..., example="424132000")
-    provider_id: str = Field(..., example="us-npi|9999868992")
-    prior_admissions_last_year: int = Field(..., example=2)
-    num_diagnoses: int = Field(..., example=1)
-    num_procedures: int = Field(..., example=9)
-    num_medications: int = Field(..., example=1)
+    length_of_stay: int = Field(..., json_schema_extra={'example': 7})
+    age_at_admission: int = Field(..., json_schema_extra={'example': 50})
+    gender: str = Field(..., json_schema_extra={'example': "male"})
+    race: str = Field(..., json_schema_extra={'example': "White"})
+    marital_status: str = Field(..., json_schema_extra={'example': "M"})
+    admission_reason: str = Field(..., json_schema_extra={'example': "Encounter for problem (procedure)"})
+    payer: str = Field(..., json_schema_extra={'example': "Medicare"})
+    total_claim_cost: float = Field(..., json_schema_extra={'example': 26483})
+    income: int = Field(..., json_schema_extra={'example': 74739})
+    admission_day_of_week: str = Field(..., json_schema_extra={'example': "Tuesday"})
+    primary_diagnosis_code: str = Field(..., json_schema_extra={'example': "424132000"})
+    provider_id: str = Field(..., json_schema_extra={'example': "us-npi|9999868992"})
+    prior_admissions_last_year: int = Field(..., json_schema_extra={'example': 2})
+    num_diagnoses: int = Field(..., json_schema_extra={'example': 1})
+    num_procedures: int = Field(..., json_schema_extra={'example': 9})
+    num_medications: int = Field(..., json_schema_extra={'example': 1})
 
 class PredictionResponse(BaseModel):
     """Defines the structure for the ID-based prediction response."""
@@ -80,9 +85,12 @@ class PredictionResponse(BaseModel):
 
 class InteractivePredictionResponse(BaseModel):
     """Defines the structure for the interactive prediction response."""
-    readmission_probability: float = Field(..., example=0.8245)
-    prediction: int = Field(..., example=1, description="1 for high risk, 0 for low risk.")
-    threshold: float = Field(..., example=0.7)
+    readmission_probability: float = Field(..., json_schema_extra={'example': 0.8245})
+    prediction: int = Field(..., json_schema_extra={'example': 1}, description="1 for high risk, 0 for low risk.")
+    threshold: float = Field(..., json_schema_extra={'example': 0.7})
+# =============================================================================
+# ADJUSTMENT END
+# =============================================================================
 
 
 # --- API Endpoints ---
@@ -146,4 +154,3 @@ def post_interactive_prediction(features: PredictionFeatures):
         "prediction": prediction,
         "threshold": THRESHOLD,
     }
-
