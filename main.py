@@ -47,12 +47,6 @@ app = FastAPI(
 )
 
 # --- Pydantic Models (Data Validation) ---
-
-# =============================================================================
-# ADJUSTMENT START: Updated Pydantic 'example' to 'json_schema_extra'
-# The 'example' keyword argument is deprecated in Pydantic v2. The correct
-# way to provide examples for OpenAPI documentation is via 'json_schema_extra'.
-# =============================================================================
 class PredictionFeatures(BaseModel):
     """
     Defines the structure for the JSON payload for the interactive endpoint.
@@ -88,13 +82,8 @@ class InteractivePredictionResponse(BaseModel):
     readmission_probability: float = Field(..., json_schema_extra={'example': 0.8245})
     prediction: int = Field(..., json_schema_extra={'example': 1}, description="1 for high risk, 0 for low risk.")
     threshold: float = Field(..., json_schema_extra={'example': 0.7})
-# =============================================================================
-# ADJUSTMENT END
-# =============================================================================
-
 
 # --- API Endpoints ---
-
 @app.get("/", tags=["General"])
 def read_root():
     return {"message": "Welcome! Navigate to /docs for API documentation."}
