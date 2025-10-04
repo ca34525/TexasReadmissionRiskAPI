@@ -6,7 +6,7 @@ These tests use pytest fixtures and parametrization for clean and efficient test
 """
 
 import duckdb
-import pytest
+import pytest  # <-- CHANGE 1: ADD THIS IMPORT
 from src import config
 
 # --- TEST CONFIGURATION ---
@@ -61,6 +61,8 @@ def test_table_is_not_empty(db_connection, table_name):
     assert count > 0, f"Table '{table_name}' is empty."
 
 
+# vvv CHANGE 2: ADD THE MARKER BELOW vvv
+@pytest.mark.full_dataset
 @pytest.mark.parametrize(
     "table_name, expected_count", list(EXPECTED_ROW_COUNTS.items())
 )

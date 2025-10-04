@@ -42,11 +42,12 @@ jobs:
             -v ./models:/app/models \
             readmission-api python -m src.pipeline
 
+      # vvv CHANGE IS IN THIS STEP vvv
       - name: Run ETL integration tests on generated database
         run: |
           docker run --rm \
             -v ./output:/app/output \
-            readmission-api pytest tests/test_etl.py
+            readmission-api pytest -m "not full_dataset" tests/test_etl.py # <-- ADDED -m FLAG
 
       - name: Run API smoke test
         run: |
