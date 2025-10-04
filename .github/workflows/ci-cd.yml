@@ -42,12 +42,11 @@ jobs:
             -v ./models:/app/models \
             readmission-api python -m src.pipeline
 
-      # vvv CHANGE IS IN THIS STEP vvv
       - name: Run ETL integration tests on generated database
         run: |
           docker run --rm \
             -v ./output:/app/output \
-            readmission-api pytest -m "not full_dataset" tests/test_etl.py # <-- ADDED -m FLAG
+            readmission-api pytest -m "not full_dataset" tests/test_etl.py
 
       - name: Run API smoke test
         run: |
@@ -65,10 +64,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+      
+      # vvv CHANGE IS IN THIS STEP vvv
       - name: Tag and push Docker image to GHCR
         run: |
-          IMAGE_ID=ghcr.io/${{ github.repository }}:${{ github.sha }}
+          # Convert repository name to lowercase for Docker
+          REPO_LOWERCASE=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_ID=ghcr.io/$REPO_LOWERCASE:${{ github.sha }}
+          
+          echo "Tagging image as $IMAGE_ID"
           docker tag readmission-api $IMAGE_ID
+          
+          echo "Pushing image to GHCR..."
           docker push $IMAGE_ID
-          echo "✅ Image pushed to $IMAGE_ID"
+          
+          echo "✅ Image pushed successfully!"
