@@ -11,11 +11,12 @@ import os
 from pathlib import Path
 
 # --- DIRECTORY SETUP ---
-# NOTE: We use Path.cwd() to get the current working directory, which is
-# typically the project's root folder where you run the scripts from.
+# Use an environment variable for the FHIR data path,
+# falling back to the local project structure if not set.
+FHIR_DIR = Path(os.getenv("FHIR_PATH", Path(os.getcwd()) / "data" / "fhir"))
+
+# The rest of the paths remain the same
 PROJECT_ROOT = Path(os.getcwd())
-DATA_DIR = PROJECT_ROOT / "data"
-FHIR_DIR = DATA_DIR / "fhir"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 MODELS_DIR = PROJECT_ROOT / "models"
 

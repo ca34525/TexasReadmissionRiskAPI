@@ -37,6 +37,7 @@ jobs:
         run: |
           docker run --rm \
             -v ./sample_data:/app/data \
+            -e FHIR_PATH=/app/data \
             -v ./output:/app/output \
             -v ./models:/app/models \
             readmission-api python -m src.pipeline
