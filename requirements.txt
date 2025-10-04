@@ -15,7 +15,8 @@ shap
 matplotlib
 seaborn
 
-# API
+# API & UI
+gradio
 fastapi
 uvicorn[standard]
 
