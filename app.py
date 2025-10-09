@@ -122,7 +122,17 @@ interactive_inputs = [
         choices=["M", "S", "D", "W"], 
         value="M"
     ),
-    gr.Textbox(label="Admission Reason", value="Encounter for problem (procedure)"),
+    gr.Dropdown(
+        label="Admission Reason",
+        choices=[
+            "Encounter for problem (procedure)", "Hospital admission (procedure)",
+            "Drug rehabilitation and detoxification (regime/therapy)", "Admission to surgical department (procedure)",
+            "Admission to intensive care unit (procedure)", "Admission to ward (procedure)",
+            "Patient transfer to intensive care unit (procedure)", "Admission to surgical transplant department (procedure)",
+            "Non-urgent orthopedic admission (procedure)", "Hospital admission for isolation (procedure)"
+        ],
+        value="Encounter for problem (procedure)"
+    ),
     gr.Dropdown(
         label="Payer", 
         choices=["Medicare", "NO_INSURANCE", "Cigna Health", "Aetna", "Anthem", "Humana", "Blue Cross Blue Shield", "Medicaid", "UnitedHealthcare", "Dual Eligible"], 
@@ -135,8 +145,24 @@ interactive_inputs = [
         choices=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], 
         value="Tuesday"
     ),
-    gr.Textbox(label="Primary Diagnosis Code", value="424132000"),
-    gr.Textbox(label="Provider ID", value="us-npi|9999868992"),
+    gr.Dropdown(
+        label="Primary Diagnosis Code",
+        choices=[
+            "424132000", "6525002", "25675004", "183996000", "399261000",
+            "74400008", "67811000119102", "39898005", "88805009", "698306007"
+        ],
+        value="424132000"
+    ),
+    gr.Dropdown(
+        label="Provider ID",
+        choices=[
+            "us-npi|9999868992", "us-npi|9999975797", "us-npi|9999965897",
+            "us-npi|9999897892", "us-npi|9999988691", "us-npi|9999948190",
+            "us-npi|9999921791", "us-npi|9999936591", "us-npi|9999999490",
+            "us-npi|9999978791"
+        ],
+        value="us-npi|9999868992"
+    ),
     gr.Number(label="Prior Admissions (Last Year)", value=2),
     gr.Number(label="Number of Diagnoses", value=1),
     gr.Number(label="Number of Procedures", value=9),
