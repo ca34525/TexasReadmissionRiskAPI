@@ -93,7 +93,7 @@ The API will now be running and accessible.
 
 You can now get real-time predictions.
 
-  * **Interactive Docs (Recommended):** Open your web browser and navigate to **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**. This interface allows you to test the endpoint directly.
+  * **Interactive Docs (Recommended):** Open your web browser and navigate to **[http://localhost:7860/](http://localhost:7860/)**. This interface allows you to test the endpoint directly.
   * **Command Line (`curl`):** Use a valid `encounter_id` from your dataset to get a prediction.
     ```bash
     curl http://127.0.0.1:8000/predict/your-encounter-id-here
