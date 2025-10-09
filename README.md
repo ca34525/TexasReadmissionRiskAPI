@@ -107,7 +107,27 @@ As an alternative to the raw API, you can launch the Gradio web interface to int
 docker run --rm -p 7860:7860 -v ./output:/app/output -v ./models:/app/models readmission-api python app.py
 ```
 
-Open your web browser and navigate to **[http://127.0.0.1:7860](https://www.google.com/search?q=http://127.0.0.1:7860)** to use the application.
+Open your web browser and navigate to **[http://127.0.0.1:7860](http://127.0.0.1:7860)** to use the application.
+
+### Running an Interactive Analysis Session (Optional)
+
+While the project is automated, you may need to perform ad-hoc data analysis or debug the code interactively. You can do this by launching a JupyterLab session inside the container. This gives you access to all the project's dependencies and output artifacts in a familiar notebook environment.
+
+This command overrides the default command in the Dockerfile to start a JupyterLab server instead of the API.
+
+**On Windows (Command Prompt):**
+
+```bash
+docker run -it --rm -p 8888:8888 -v "%cd%":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+```
+
+**On Linux, macOS, or Windows (PowerShell):**
+
+```bash
+docker run -it --rm -p 8888:8888 -v "$(pwd)":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+```
+
+After running the command, copy the URL from your terminal (which includes a security token) and paste it into your web browser to begin your session.
 
 -----
 
