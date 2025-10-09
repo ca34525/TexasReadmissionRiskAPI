@@ -16,7 +16,6 @@ from src.predict import make_prediction
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 # --- Load Model and Metadata at Startup ---
-# This mirrors the efficient loading in main.py
 try:
     model = cb.CatBoostClassifier()
     model.load_model(str(config.MODEL_FILE))
@@ -33,7 +32,6 @@ except Exception as e:
 
 # =================================================================================
 # TAB 1: INTERACTIVE PREDICTION LOGIC
-# This function mirrors the logic from your `/predict/interactive` FastAPI endpoint.
 # =================================================================================
 def interactive_prediction(*features):
     if not model:
@@ -65,13 +63,16 @@ def interactive_prediction(*features):
         
         # Make the prediction
         pred_proba = model.predict_proba(df)[0, 1]
-        prediction = "High Risk" if pred_proba >= THRESHOLD else "Low Risk"
+        
+        # Create the more descriptive classification text
+        classification_text = "High Risk of Readmission" if pred_proba >= THRESHOLD else "Low Risk of Readmission"
 
-        # Return a formatted dictionary for the Gradio Label component
-        return {
-            "High Risk": pred_proba if prediction == "High Risk" else 1 - pred_proba,
-            "Low Risk": 1 - pred_proba if prediction == "High Risk" else pred_proba
-        }
+        # Return a Markdown formatted string for bolding
+        return (
+            f"**Predicted Probability of Readmission:** {pred_proba:.2%}\n\n"
+            f"**Classification:** {classification_text}"
+        )
+
     except Exception as e:
         logging.error(f"Error during interactive prediction: {e}")
         return f"An error occurred: {e}"
@@ -79,7 +80,6 @@ def interactive_prediction(*features):
 
 # =================================================================================
 # TAB 2: ID-BASED PREDICTION LOGIC
-# This function is a wrapper around your existing 'make_prediction' function.
 # =================================================================================
 def id_based_prediction(encounter_id):
     if not encounter_id:
@@ -90,10 +90,14 @@ def id_based_prediction(encounter_id):
         if "error" in result:
             return f"Error: {result['error']}"
 
-        prediction = "High Risk" if result['prediction'] == 1 else "Low Risk"
         probability = result['readmission_probability']
+        classification_text = "High Risk of Readmission" if result['prediction'] == 1 else "Low Risk of Readmission"
         
-        return f"Prediction: {prediction}\nProbability: {probability:.2%}"
+        # Return a Markdown formatted string consistent with the other tab
+        return (
+            f"**Predicted Probability of Readmission:** {probability:.2%}\n\n"
+            f"**Classification:** {classification_text}"
+        )
 
     except Exception as e:
         logging.error(f"Error during ID-based prediction: {e}")
@@ -104,18 +108,33 @@ def id_based_prediction(encounter_id):
 # =================================================================================
 
 # --- Interface for Tab 1 (Interactive Prediction) ---
-# The input components match the 'PredictionFeatures' Pydantic model, using examples from your main.py.
 interactive_inputs = [
     gr.Number(label="Length of Stay (days)", value=7),
     gr.Number(label="Age at Admission", value=50),
     gr.Radio(label="Gender", choices=["male", "female"], value="male"),
-    gr.Textbox(label="Race", value="White"),
-    gr.Textbox(label="Marital Status", value="M"),
+    gr.Dropdown(
+        label="Race", 
+        choices=["White", "Black or African American", "Asian", "American Indian or Alaska Native", "Native Hawaiian or Other Pacific Islander", "Unknown"], 
+        value="White"
+    ),
+    gr.Dropdown(
+        label="Marital Status", 
+        choices=["M", "S", "D", "W"], 
+        value="M"
+    ),
     gr.Textbox(label="Admission Reason", value="Encounter for problem (procedure)"),
-    gr.Textbox(label="Payer", value="Medicare"),
+    gr.Dropdown(
+        label="Payer", 
+        choices=["Medicare", "NO_INSURANCE", "Cigna Health", "Aetna", "Anthem", "Humana", "Blue Cross Blue Shield", "Medicaid", "UnitedHealthcare", "Dual Eligible"], 
+        value="Medicare"
+    ),
     gr.Number(label="Total Claim Cost", value=26483),
     gr.Number(label="Income", value=74739),
-    gr.Textbox(label="Admission Day of Week", value="Tuesday"),
+    gr.Dropdown(
+        label="Admission Day of Week", 
+        choices=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], 
+        value="Tuesday"
+    ),
     gr.Textbox(label="Primary Diagnosis Code", value="424132000"),
     gr.Textbox(label="Provider ID", value="us-npi|9999868992"),
     gr.Number(label="Prior Admissions (Last Year)", value=2),
@@ -127,18 +146,36 @@ interactive_inputs = [
 interface1 = gr.Interface(
     fn=interactive_prediction,
     inputs=interactive_inputs,
-    outputs=gr.Label(label="Prediction Result"),
+    outputs=gr.Markdown(label="Prediction Result"),
     title="Interactive Prediction",
-    description="Fill in the patient and encounter details below to get a real-time readmission risk prediction."
+    description=(
+        "Enter the patient's details below to predict their risk of readmission. Please use a valid SNOMED CT code for the primary diagnosis.<br><br>"
+        "**Note:** The model's threshold is set to **70%** to effectively balance patient identification (74% recall and precision) "
+        "with the need to reduce costly false alarms.<br>"
+        "Therefore, patients with a less then 70% probability of readmission are labelled Low Risk"
+    )
 )
 
 # --- Interface for Tab 2 (ID-Based Prediction) ---
+# Updated input to be a Dropdown with the specified IDs
+encounter_ids = [
+    "ef5d7e9f-956d-2b7a-a4a6-c632f3b40cf9",
+    "3c5e1be2-468a-e4d8-11f2-e767d59482d5",
+    "6f06a6aa-a1da-bcd6-a43f-ddbbd638947c",
+    "e2477992-082b-69ca-3152-6fecf4442626",
+    "735f3287-d205-1ec8-9668-fcdac03f306a"
+]
+
 interface2 = gr.Interface(
     fn=id_based_prediction,
-    inputs=gr.Textbox(label="Encounter ID", placeholder="Enter a valid encounter_id from the database..."),
-    outputs=gr.Textbox(label="Prediction Result", lines=2),
+    inputs=gr.Dropdown(
+        label="Encounter ID", 
+        choices=encounter_ids, 
+        value=encounter_ids[0]
+    ),
+    outputs=gr.Markdown(label="Prediction Result"), # Updated output to Markdown
     title="Predict from ID",
-    description="Enter a historical Encounter ID to retrieve its data and predict readmission risk."
+    description="Select a historical Encounter ID to retrieve its data and predict readmission risk."
 )
 
 # --- Combine interfaces into a single app with tabs ---
