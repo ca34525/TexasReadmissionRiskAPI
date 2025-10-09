@@ -18,6 +18,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # vvv NEW STEPS START HERE vvv
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download artifacts from S3
+        run: |
+          echo "Downloading required directories from S3..."
+          aws s3 sync s3://readmission-artifacts/output ./output
+          echo "✅ Directories downloaded successfully."
+      # ^^^ NEW STEPS END HERE ^^^
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
@@ -65,7 +80,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      # vvv CHANGE IS IN THIS STEP vvv
       - name: Tag and push Docker image to GHCR
         run: |
           # Convert repository name to lowercase for Docker
