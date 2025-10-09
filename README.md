@@ -4,9 +4,17 @@ This project demonstrates a complete, end-to-end MLOps workflow for predicting 3
 
 The project has been refactored from an initial exploratory notebook environment into a reproducible, script-based, and containerized application with automated CI/CD.
 
+-----
+
+## A Note on the Jupyter Notebooks
+
+The `notebooks/` folder contains the original, step-by-step development of this project. They are the best resource for a detailed, **narrative-style walkthrough** of the exploratory data analysis (EDA), feature selection, and model tuning process. If you want to understand the **"why"** behind the final pipeline's design, the notebooks are the best place to start.
+
+-----
+
 ## Project Status & Workflow
 
-The project is organized into three main components: a batch pipeline for model training, a real-time API for serving predictions, and a CI/CD pipeline for automation.
+The project is organized into four main components: a batch pipeline for model training, a real-time API for serving predictions, a CI/CD pipeline for automation, and an interactive UI for user-friendly access.
 
 ### Part I: Batch Training Pipeline
 
@@ -33,6 +41,15 @@ This project is configured with a complete CI/CD pipeline using **GitHub Actions
   * **Build & Publish:** If all tests pass, it builds the master Docker image.
   * **Versioning:** The image is tagged with the unique Git commit hash and pushed to **GitHub Container Registry (GHCR)**, ensuring a versioned, deployment-ready artifact is always available.
 
+### Part IV: Interactive User Interface (UI)
+
+A **Gradio** application (`app.py`) provides a user-friendly web interface for interacting with the trained model, making it accessible to non-technical stakeholders.
+
+1.  **UI Layer (`app.py`):** This script loads the same trained model and metadata, creating a tabbed interface for predictions.
+2.  **Two Prediction Modes:**
+      * **Interactive Prediction:** A detailed form where users can input individual patient and encounter features to receive a real-time risk classification and probability.
+      * **Predict from ID:** A dropdown menu pre-populated with known `encounter_id`s, allowing users to quickly see predictions for historical data.
+
 -----
 
 ## How to Use This Project
@@ -54,7 +71,7 @@ docker build -t readmission-api .
 
 ### Step 2: Run the Training Pipeline
 
-Next, run the end-to-end training pipeline inside the container. This will execute the ETL, feature engineering, training, and evaluation steps. The process will create the DuckDB database in `output/` and the trained model in `models/`, which are required for the API to function.
+Next, run the end-to-end training pipeline inside the container. This will execute the ETL, feature engineering, training, and evaluation steps. The process will create the DuckDB database in `output/` and the trained model in `models/`, which are required for the API and UI to function.
 
 ```bash
 docker run --rm -v ./data:/app/data -v ./output:/app/output -v ./models:/app/models readmission-api python pipeline.py
@@ -82,21 +99,28 @@ You can now get real-time predictions.
     curl http://127.0.0.1:8000/predict/your-encounter-id-here
     ```
 
+### Step 5: Launch the Interactive UI (Alternative)
+
+As an alternative to the raw API, you can launch the Gradio web interface to interact with the model.
+
+```bash
+docker run --rm -p 7860:7860 -v ./output:/app/output -v ./models:/app/models readmission-api python app.py
+```
+
+Open your web browser and navigate to **[http://127.0.0.1:7860](https://www.google.com/search?q=http://127.0.0.1:7860)** to use the application.
+
 -----
 
-## Next Steps & Future Work
+## Project Roadmap
 
-With the core pipeline and CI/CD established, the next logical steps for this project include:
+### Completed
 
-  * **User-Friendly UI:** Develop a simple web interface using a framework like **Gradio**. This will provide an interactive UI for making predictions, making the model accessible to non-technical users.
+  * **User-Friendly UI:** A simple web interface has been developed using **Gradio**. This provides an interactive UI for making predictions, making the model accessible to non-technical users.
+
+### Future Work
+
   * **Cloud Deployment:** Deploy the container from GHCR to a scalable cloud service like **AWS Elastic Container Service (ECS)** to create a production-grade, highly available prediction endpoint.
   * **Monitoring:** Implement logging and monitoring for the deployed API to track uptime, request latency, and potential model drift.
-
------
-
-## A Note on the Jupyter Notebooks
-
-The `notebooks/` folder contains the original, step-by-step development of this project. They are the best resource for a detailed, **narrative-style walkthrough** of the exploratory data analysis (EDA), feature selection, and model tuning process. If you want to understand the **"why"** behind the final pipeline's design, the notebooks are the best place to start.
 
 -----
 
@@ -131,6 +155,7 @@ ReadmissionRiskAPI/
 │   └── utils.py
 ├── .dockerignore
 ├── .gitignore
+├── app.py
 ├── Dockerfile
 ├── main.py
 ├── pipeline.py
