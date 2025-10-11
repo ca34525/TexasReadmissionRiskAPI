@@ -1,16 +1,32 @@
 # Texas Hospital Readmission Prediction
 
-This project demonstrates a complete, end-to-end MLOps workflow for predicting 30-day hospital readmissions. It begins with raw synthetic FHIR data and uses a containerized Python application to perform ETL, feature engineering, model training, and finally, deployment as a real-time REST API.
+This project demonstrates a complete, end-to-end workflow for predicting 30-day hospital readmissions. It begins with raw synthetic FHIR data and uses a containerized Python application to perform ETL, feature engineering, model training, and finally, deployment as a real-time REST API.
 
 The project has been refactored from an initial exploratory notebook environment into a reproducible, script-based, and containerized application with automated CI/CD.
 
 -----
 
-## A Note on the Jupyter Notebooks
+## Where to Start
 
-The `notebooks/` folder contains the original, step-by-step development of this project. They are the best resource for a detailed, **narrative-style walkthrough** of the exploratory data analysis (EDA), feature selection, and model tuning process. If you want to understand the **"why"** behind the final pipeline's design, the notebooks are the best place to start.
+There are two great ways to get familiar with this project, depending on your goal.
+
+* **For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
+    **Access the live demo here:** **[https://pvv8v4igm6.us-east-1.awsapprunner.com/](https://pvv8v4igm6.us-east-1.awsapprunner.com/)**
+
+* **To understand the "why" behind the project**, the Jupyter notebooks are the best resource. They provide a detailed, narrative-style walkthrough of the exploratory data analysis (EDA), feature selection, and model tuning process.
 
 -----
+
+## Data Generation
+
+The raw data is generated using **Synthea™**, an open-source patient population simulator. To replicate the dataset, execute the following command from the root of the Synthea project directory.
+
+```bash
+java -jar synthea-with-dependencies.jar Texas -p 100000 -s 42 --exporter.fhir.use_us_core_ig true --exporter.csv.export true --exporter.fhir.export true
+```
+
+Place the generated `fhir` output folder into the `data/` directory of this project.
+
 
 ## Project Status & Workflow
 
@@ -131,30 +147,13 @@ After running the command, copy the URL from your terminal (which includes a sec
 
 -----
 
-## Project Roadmap
+## Cloud Deployment on AWS App Runner
 
-### Completed
+This project's API and interactive UI have been successfully deployed to **AWS App Runner**, a fully managed service for containerized applications.  This provides a scalable, production-grade endpoint.
 
-  * **User-Friendly UI:** A simple web interface has been developed using **Gradio**. This provides an interactive UI for making predictions, making the model accessible to non-technical users.
+The deployment workflow leverages a container-native approach.  The final Docker image, which bundles the application and all its dependencies, is first pushed to a private repository in **Amazon Elastic Container Registry (ECR)**.
 
-### Future Work
-
-  * **Cloud Deployment:** Deploy the container from GHCR to a scalable cloud service like **AWS Elastic Container Service (ECS)** to create a production-grade, highly available prediction endpoint.
-  * **Monitoring:** Implement logging and monitoring for the deployed API to track uptime, request latency, and potential model drift.
-
------
-
-## Data Generation
-
-The raw data is generated using **Synthea™**, an open-source patient population simulator. To replicate the dataset, execute the following command from the root of the Synthea project directory.
-
-```bash
-java -jar synthea-with-dependencies.jar Texas -p 100000 -s 42 --exporter.fhir.use_us_core_ig true --exporter.csv.export true --exporter.fhir.export true
-```
-
-Place the generated `fhir` output folder into the `data/` directory of this project.
-
------
+An AWS App Runner service is then configured to pull this image directly from the ECR repository.  This setup utilizes an **IAM role** to securely grant App Runner the necessary permissions for access.  The service is set for automatic deployments, meaning any new image pushed to ECR will trigger an update to the live application.  Finally, the service is configured to expose the correct container port (**`8000`** for the API or **`7860`** for the UI) to public traffic.
 
 ## Project Structure
 
