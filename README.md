@@ -10,7 +10,7 @@ The project has been refactored from an initial exploratory notebook environment
 
 There are two great ways to get familiar with this project, depending on your goal.
 
-* **For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
+* **(On Pause) For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
     **Access the live demo here:** **[https://pvv8v4igm6.us-east-1.awsapprunner.com/](https://pvv8v4igm6.us-east-1.awsapprunner.com/)**
 
 * **To understand the "why" behind the project**, the Jupyter notebooks are the best resource. They provide a detailed, narrative-style walkthrough of the exploratory data analysis (EDA), feature selection, and model tuning process.
