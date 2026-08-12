@@ -29,15 +29,20 @@ def create_features(db_path: Path, output_path: Path):
     sql_target = """
     WITH PatientAdmissions AS (
         SELECT
-            Id AS encounter_id,
-            Patient AS patient_id,
-            Start AS admission_date,
-            Stop AS discharge_date,
-            LEAD(Start, 1) OVER(
-                PARTITION BY Patient ORDER BY Start
+            index_admission.Id AS encounter_id,
+            index_admission.Patient AS patient_id,
+            index_admission.Start AS admission_date,
+            index_admission.Stop AS discharge_date,
+            (
+                SELECT MIN(candidate.Start)
+                FROM encounters AS candidate
+                WHERE candidate.Patient = index_admission.Patient
+                    AND candidate.EncounterClass = 'IMP'
+                    AND candidate.Id <> index_admission.Id
+                    AND candidate.Start > index_admission.Stop
             ) AS next_admission_date
-        FROM encounters
-        WHERE EncounterClass = 'IMP'
+        FROM encounters AS index_admission
+        WHERE index_admission.EncounterClass = 'IMP'
     )
     SELECT
         encounter_id,
