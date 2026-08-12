@@ -1,25 +1,17 @@
-# Data & Notebooks
-duckdb
-pandas
-pyarrow
-jupyterlab
-fhir.resources
-orjson
+# Data pipeline
+duckdb>=1.1,<2
+pandas>=2.2,<3
+pyarrow>=16,<26
+orjson>=3.10,<4
+tqdm>=4.66,<5
 
-# ML & Explainability
-scikit-learn
-xgboost
-lightgbm
-catboost
-shap
-matplotlib
-seaborn
+# Training and evaluation
+catboost>=1.2,<2
+scikit-learn>=1.5,<1.8
+matplotlib>=3.9,<3.11
+seaborn>=0.13,<1
 
-# API & UI
-gradio
-fastapi
-uvicorn[standard]
-
-# Performance
-tqdm
-pytest
+# API and UI
+fastapi>=0.115,<1
+gradio>=5,<7
+uvicorn[standard]>=0.30,<1

@@ -1,0 +1,46 @@
+name: Publish Readmission Image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download artifacts from S3
+        run: aws s3 sync s3://readmission-artifacts/output ./output
+
+      - name: Build Docker image with published artifacts
+        run: docker build --tag readmission-api .
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push Docker image to GHCR
+        run: |
+          repository=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          image_id="ghcr.io/${repository}:${{ github.sha }}"
+
+          docker tag readmission-api "$image_id"
+          docker push "$image_id"
+          echo "Image pushed to ${image_id}."

@@ -1,101 +1,90 @@
-import argparse
-import logging
-from pathlib import Path
+import json
 
-import catboost as cb
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+from src import config
+from src import train as train_module
 
 
-def train_model(data_path: Path, model_path: Path):
-    """
-    Loads the feature-engineered dataset, trains a weighted CatBoost
-    classifier, and saves the final model artifact.
+def _training_frame(row_count: int = 20) -> pd.DataFrame:
+    rows = []
+    for index in range(row_count):
+        payer = "Medicare" if index % 2 else "Aetna"
+        diagnosis = "J18.9" if index % 2 else "I50.9"
+        rows.append(
+            {
+                "encounter_id": f"enc-{index}",
+                "length_of_stay": 2 + index,
+                "age_at_admission": 40 + index,
+                "gender": "female" if index % 2 else "male",
+                "race": "white",
+                "marital_status": "M",
+                "admission_reason": "Inpatient admission",
+                "payer": payer,
+                "total_claim_cost": 1000.0 + index,
+                "income": 50000 + index,
+                "admission_day_of_week": "Monday",
+                "primary_diagnosis_code": diagnosis,
+                "provider_id": "provider-1",
+                "payer_dx_interaction": f"{payer}_{diagnosis}",
+                "prior_admissions_last_year": index % 3,
+                "num_diagnoses": 1 + index % 2,
+                "num_procedures": index % 2,
+                "num_medications": index % 4,
+                config.TARGET_VARIABLE: index % 2,
+            }
+        )
+    return pd.DataFrame(rows)
 
-    Args:
-        data_path (Path): Path to the feature dataset (Parquet).
-        model_path (Path): Path to save the trained model file (.cbm).
-    """
-    logging.info(f"Loading dataset from {data_path}...")
-    df = pd.read_parquet(data_path)
 
-    # --- 1. Define Features and Target ---
-    TARGET = "readmitted_within_30_days"
-    
-    # --- THIS IS THE FIX ---
-    # Add 'admission_date' to the list of columns to drop.
-    features_to_drop = [
-        "encounter_id", "patient_id", "admission_reason_detail", "admission_date"
+def test_train_model_writes_compatible_artifacts(tmp_path, monkeypatch):
+    data_path = tmp_path / "output" / "features.parquet"
+    model_path = tmp_path / "models" / "model.cbm"
+    data_path.parent.mkdir()
+    _training_frame().to_parquet(data_path, index=False)
+
+    created_models = []
+
+    class FakeCatBoostClassifier:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.fit_features = None
+            created_models.append(self)
+
+        def fit(self, features, target):
+            self.fit_features = features.copy()
+            self.fit_target = target.copy()
+
+        def save_model(self, path):
+            model_path = type(data_path)(path)
+            model_path.write_bytes(b"test model")
+
+    monkeypatch.setattr(
+        train_module.cb,
+        "CatBoostClassifier",
+        FakeCatBoostClassifier,
+    )
+
+    train_module.train_model(data_path=data_path, model_path=model_path)
+
+    assert model_path.read_bytes() == b"test model"
+    assert json.loads(
+        (model_path.parent / "model_metadata.json").read_text(encoding="utf-8")
+    ) == {"optimal_threshold": config.FINAL_THRESHOLD}
+
+    test_set = pd.read_parquet(data_path.parent / "test_set.parquet")
+    assert config.TARGET_VARIABLE in test_set
+    assert "encounter_id" not in test_set
+
+    trained_model = created_models[0]
+    assert trained_model.kwargs["cat_features"] == config.CATEGORICAL_FEATURES
+    assert trained_model.kwargs["allow_writing_files"] is False
+    assert trained_model.fit_features.columns.tolist() == [
+        column
+        for column in _training_frame().columns
+        if column not in {"encounter_id", config.TARGET_VARIABLE}
     ]
-    
-    X = df.drop(columns=[TARGET] + features_to_drop)
-    y = df[TARGET]
-
-    categorical_features = [
-        "gender", "race", "marital_status", "admission_reason",
-        "payer", "admission_day_of_week", "primary_diagnosis_code",
-        "provider_id", "payer_dx_interaction",
-    ]
-
-    # --- 2. Split Data ---
-    logging.info("Splitting data into training and testing sets...")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    assert all(
+        str(trained_model.fit_features[column].dtype) == "category"
+        for column in config.CATEGORICAL_FEATURES
     )
-
-    # --- 3. Preprocessing for CatBoost ---
-    # CatBoost requires categorical features with NaNs to be handled.
-    logging.info("Preprocessing categorical features for CatBoost...")
-    for col in categorical_features:
-        X_train[col] = X_train[col].astype(str).fillna("missing")
-        X_test[col] = X_test[col].astype(str).fillna("missing")
-        X_train[col] = X_train[col].astype("category")
-        X_test[col] = X_test[col].astype("category")
-
-    # --- 4. Train Final Weighted CatBoost Model ---
-    logging.info("Calculating class weight for imbalance...")
-    # Weight = count of majority class / count of minority class
-    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
-    logging.info(f"Calculated scale_pos_weight: {scale_pos_weight:.2f}")
-
-    model = cb.CatBoostClassifier(
-        random_state=42,
-        verbose=0,
-        cat_features=categorical_features,
-        scale_pos_weight=scale_pos_weight,
-    )
-
-    logging.info("Training the final CatBoost model...")
-    model.fit(X_train, y_train)
-
-    # --- 5. Save the Model ---
-    logging.info(f"Saving model to {model_path}...")
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model.save_model(str(model_path))
-
-    logging.info("✅ Model training and saving complete.")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train the readmission model.")
-    parser.add_argument(
-        "--data_path",
-        type=Path,
-        default=Path("output/readmissions_dataset.parquet"),
-        help="Path to the feature dataset (Parquet).",
-    )
-    parser.add_argument(
-        "--model_path",
-        type=Path,
-        default=Path("models/catboost_model.cbm"),
-        help="Path to save the final model artifact.",
-    )
-    args = parser.parse_args()
-
-    train_model(data_path=args.data_path, model_path=args.model_path)

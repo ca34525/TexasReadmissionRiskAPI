@@ -115,9 +115,7 @@ def create_features(db_path: Path, output_path: Path):
     GROUP BY index_admission.Id
     """
     prior_admissions_df = con.execute(sql_historical).fetchdf()
-    model_df = pd.merge(
-        model_df, prior_admissions_df, on="encounter_id", how="left"
-    )
+    model_df = pd.merge(model_df, prior_admissions_df, on="encounter_id", how="left")
     model_df["prior_admissions_last_year"] = model_df[
         "prior_admissions_last_year"
     ].fillna(0)
@@ -140,12 +138,8 @@ def create_features(db_path: Path, output_path: Path):
         GROUP BY Encounter
         """
         clinical_df = con.execute(sql_clinical).fetchdf()
-        model_df = pd.merge(
-            model_df, clinical_df, on="encounter_id", how="left"
-        )
-        model_df[f"num_{feature_name}"] = model_df[
-            f"num_{feature_name}"
-        ].fillna(0)
+        model_df = pd.merge(model_df, clinical_df, on="encounter_id", how="left")
+        model_df[f"num_{feature_name}"] = model_df[f"num_{feature_name}"].fillna(0)
 
     # --- 6. Final Cleanup ---
     logging.info("Step 6: Cleaning up columns before saving...")
@@ -156,6 +150,7 @@ def create_features(db_path: Path, output_path: Path):
         "discharge_date",
         "next_admission_date",
         "days_to_next_admission",
+        "admission_reason_detail",
     ]
     model_df = model_df.drop(columns=columns_to_drop)
 

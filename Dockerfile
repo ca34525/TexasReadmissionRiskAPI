@@ -2,19 +2,18 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Add this line to install the missing system library for LightGBM
-RUN apt-get update && apt-get install -y libgomp1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG INSTALL_DEV=false
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && if [ "$INSTALL_DEV" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-dev.txt; \
+    fi
 
-# --- ADD THESE LINES HERE ---
-# Copy the trained model and the DuckDB database into the image
-# This is done before "COPY . ." to better leverage layer caching.
-COPY ./output /app/output
-COPY ./models /app/models
-# --------------------------
-
+RUN mkdir -p /app/output /app/models
 COPY . .
 
 EXPOSE 7860

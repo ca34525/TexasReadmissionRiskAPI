@@ -1,17 +1,58 @@
-# Raw data, database, and output files
-output/
+# Locally generated data and pipeline outputs
 data/
+output/
+.ci/
 
-# Python virtual environment
-venv/
+# `sample_data/` is intentionally tracked as a synthetic fixture set.
+
+# Python environments and packaging
 .venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
 
-# Python cache
+# Python bytecode and tool caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
 
-# Notebook checkpoints
+# Test and coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Jupyter runtime state
 .ipynb_checkpoints/
+.jupyter/
 
-# IDE-specific files (PyCharm)
+# Generated application and training logs
+.gradio/flagged/
+catboost_info/
+notebooks/catboost_info/
+*.log
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editors
 .idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

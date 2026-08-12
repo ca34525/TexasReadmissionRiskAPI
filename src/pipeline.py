@@ -1,77 +1,55 @@
-import logging
+"""Orchestrate the end-to-end readmission modeling pipeline."""
 
-# Import the main functions from each module in the 'src' package
+import logging
+from collections.abc import Callable
+
+from src import config
 from src.etl import main as run_etl
+from src.evaluate import evaluate_model
 from src.feature_engineering import create_features
 from src.train import train_model
-from src.evaluate import evaluate_model
 
-# Import the configuration variables that define our file paths
-from src import config
-
-# Configure logging
-# ... (logging configuration remains the same) ...
+logger = logging.getLogger(__name__)
 
 
-def main():
-    """
-    Runs the full data processing and model training pipeline.
-    """
-    logging.info("="*50)
-    logging.info("STARTING READMISSION PREDICTION PIPELINE")
-    logging.info("="*50)
+def _run_stage(name: str, operation: Callable[[], None]) -> None:
+    """Run one pipeline stage and preserve a failing process exit status."""
+    logger.info("Starting %s", name)
+    try:
+        operation()
+    except Exception:
+        logger.exception("Pipeline stage failed: %s", name)
+        raise
+    logger.info("Completed %s", name)
 
-    # --- Define key file paths from the config module for clarity ---
+
+def main() -> None:
+    """Run ETL, feature engineering, training, and evaluation in order."""
     feature_dataset_path = config.OUTPUT_DIR / "readmissions_dataset.parquet"
-    
-    # --- Step 1: Run the ETL process ---
-    logging.info("STEP 1: Starting ETL process...")
-    try:
-        run_etl()
-        logging.info("✅ STEP 1: ETL process completed successfully.")
-    except Exception as e:
-        logging.error(f"💥 STEP 1: ETL process failed. Error: {e}")
-        return # Stop the pipeline if ETL fails
 
-    # --- Step 2: Run the feature engineering process ---
-    logging.info("STEP 2: Starting feature engineering...")
-    try:
-        create_features(
+    logger.info("Starting readmission prediction pipeline")
+    _run_stage("ETL", run_etl)
+    _run_stage(
+        "feature engineering",
+        lambda: create_features(
             db_path=config.DB_FILE,
-            output_path=feature_dataset_path
-        )
-        logging.info("✅ STEP 2: Feature engineering completed successfully.")
-    except Exception as e:
-        logging.error(f"💥 STEP 2: Feature engineering failed. Error: {e}")
-        return # Stop the pipeline if this step fails
-
-    # --- Step 3: Run the model training process ---
-    logging.info("STEP 3: Starting model training...")
-    try:
-        # CHANGE: Use the MODEL_FILE variable from the config
-        train_model(
+            output_path=feature_dataset_path,
+        ),
+    )
+    _run_stage(
+        "model training",
+        lambda: train_model(
             data_path=feature_dataset_path,
-            model_path=config.MODEL_FILE
-        )
-        logging.info("✅ STEP 3: Model training completed successfully.")
-    except Exception as e:
-        logging.error(f"💥 STEP 3: Model training failed. Error: {e}")
-        return # Stop the pipeline if training fails
-        
-    # --- Step 4: Run the final evaluation ---
-    logging.info("STEP 4: Starting model evaluation...")
-    try:
-        evaluate_model()
-        logging.info("✅ STEP 4: Evaluation completed successfully.")
-    except Exception as e:
-        logging.error(f"💥 STEP 4: Evaluation failed. Error: {e}")
-        return # Stop if evaluation also fails
-
-    # CHANGE: Move the final success message to the very end
-    logging.info("="*50)
-    logging.info("🎉 PIPELINE FINISHED SUCCESSFULLY 🎉")
-    logging.info("="*50)
+            model_path=config.MODEL_FILE,
+        ),
+    )
+    _run_stage("model evaluation", evaluate_model)
+    logger.info("Readmission prediction pipeline finished successfully")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
     main()

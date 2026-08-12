@@ -4,13 +4,15 @@ This project demonstrates a complete, end-to-end workflow for predicting 30-day 
 
 The project has been refactored from an initial exploratory notebook environment into a reproducible, script-based, and containerized application with automated CI/CD.
 
+*This project uses synthetic data and is an engineering demonstration, not validated clinical decision-support software.*
+
 -----
 
 ## Where to Start
 
 There are two great ways to get familiar with this project, depending on your goal.
 
-* **(On Pause) For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
+* **For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
     **Access the live demo here:** **[https://pvv8v4igm6.us-east-1.awsapprunner.com/](https://pvv8v4igm6.us-east-1.awsapprunner.com/)**
 
 * **To understand the "why" behind the project**, the Jupyter notebooks are the best resource. They provide a detailed, narrative-style walkthrough of the exploratory data analysis (EDA), feature selection, and model tuning process.
@@ -27,14 +29,13 @@ java -jar synthea-with-dependencies.jar Texas -p 100000 -s 42 --exporter.fhir.us
 
 Place the generated `fhir` output folder into the `data/` directory of this project.
 
-
 ## Project Status & Workflow
 
 The project is organized into four main components: a batch pipeline for model training, a real-time API for serving predictions, a CI/CD pipeline for automation, and an interactive UI for user-friendly access.
 
 ### Part I: Batch Training Pipeline
 
-The core logic is organized into a modular Python package (`src/`) and managed by an orchestration script (`pipeline.py`). This automated pipeline executes the following stages in sequence:
+The core logic is organized into a modular Python package (`src/`) and managed by an orchestration script (`src/pipeline.py`). This automated pipeline executes the following stages in sequence:
 
 1.  **ETL (`src/etl.py`):** A parallelized pipeline parses raw FHIR JSON bundles, extracts relevant clinical and demographic data, and loads the clean, structured data into a **DuckDB** database.
 2.  **Feature Engineering (`src/feature_engineering.py`):** SQL queries are executed against the DuckDB database to create the final analytical dataset. This step engineers the target variable (`readmitted_within_30_days`) and a rich feature set.
@@ -49,13 +50,15 @@ A **FastAPI** application (`main.py`) serves the trained model through a REST en
 2.  **Prediction Logic (`src/predict.py`):** This module contains the core logic to fetch data for a single patient encounter from the database, apply the *exact same* feature engineering steps used in training, and generate a real-time risk score.
 3.  **Containerization (`Dockerfile`):** The entire application, including the API and all dependencies, is containerized with Docker, ensuring a consistent and reproducible environment for deployment.
 
-### Part III: Continuous Integration (CI/CD)
+### Part III: Continuous Integration
 
-This project is configured with a complete CI/CD pipeline using **GitHub Actions**. On every push to the `main` branch, the workflow automatically performs:
+This project uses **GitHub Actions** for credential-free checks on pull requests and pushes to `main`. The workflow:
 
-  * **Multi-Stage Testing:** Runs fast unit tests, executes the full training pipeline on a sample dataset for integration testing, and performs a smoke test on the live API server.
-  * **Build & Publish:** If all tests pass, it builds the master Docker image.
-  * **Versioning:** The image is tagged with the unique Git commit hash and pushed to **GitHub Container Registry (GHCR)**, ensuring a versioned, deployment-ready artifact is always available.
+* Runs the unit tests and Ruff source checks.
+* Builds the Docker image and runs the full pipeline on the tracked synthetic sample data.
+* Runs portable ETL integrity tests and a FastAPI readiness smoke test.
+
+Image publishing is kept in a separate, manually triggered workflow so normal CI does not require AWS credentials or modify cloud resources.
 
 ### Part IV: Interactive User Interface (UI)
 
@@ -64,7 +67,7 @@ A **Gradio** application (`app.py`) provides a user-friendly web interface for i
 1.  **UI Layer (`app.py`):** This script loads the same trained model and metadata, creating a tabbed interface for predictions.
 2.  **Two Prediction Modes:**
       * **Interactive Prediction:** A detailed form where users can input individual patient and encounter features to receive a real-time risk classification and probability.
-      * **Predict from ID:** A dropdown menu pre-populated with known `encounter_id`s, allowing users to quickly see predictions for historical data.
+      * **Predict from ID:** A dropdown populated from the generated DuckDB database for predictions on historical synthetic encounters.
 
 -----
 
@@ -90,30 +93,29 @@ docker build -t readmission-api .
 Next, run the end-to-end training pipeline inside the container. This will execute the ETL, feature engineering, training, and evaluation steps. The process will create the DuckDB database in `output/` and the trained model in `models/`, which are required for the API and UI to function.
 
 ```bash
-docker run --rm -v ./data:/app/data -v ./output:/app/output -v ./models:/app/models readmission-api python pipeline.py
+docker run --rm -v ./data:/app/data -v ./output:/app/output -v ./models:/app/models readmission-api python -m src.pipeline
 ```
 
 *Note: We use Docker volumes (`-v`) to ensure that the `output` and `models` generated inside the container are saved to your local machine.*
 
 ### Step 3: Run the Prediction API
 
-Once the pipeline has successfully run and created the model, you can start the API server.
+Once the pipeline has successfully run and created the model, you can start the API server by overriding the default Gradio command with Uvicorn.
 
 ```bash
-docker run --rm -p 8000:8000 -v ./output:/app/output -v ./models:/app/models readmission-api
+docker run --rm -p 8000:8000 -v ./output:/app/output -v ./models:/app/models readmission-api python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
-
-The API will now be running and accessible.
 
 ### Step 4: Interact with the API
 
 You can now get real-time predictions.
 
-  * **Interactive Docs (Recommended):** Open your web browser and navigate to **[http://localhost:7860/](http://localhost:7860/)**. This interface allows you to test the endpoint directly.
-  * **Command Line (`curl`):** Use a valid `encounter_id` from your dataset to get a prediction.
-    ```bash
-    curl http://127.0.0.1:8000/predict/your-encounter-id-here
-    ```
+  * **Interactive Docs (Recommended):** Open **[http://localhost:8000/docs](http://localhost:8000/docs)**.
+  * **Command Line (`curl`):** Use a valid `encounter_id` from your dataset.
+
+```bash
+curl http://127.0.0.1:8000/predict/your-encounter-id-here
+```
 
 ### Step 5: Launch the Interactive UI (Alternative)
 
@@ -127,33 +129,33 @@ Open your web browser and navigate to **[http://127.0.0.1:7860](http://127.0.0.1
 
 ### Running an Interactive Analysis Session (Optional)
 
-While the project is automated, you may need to perform ad-hoc data analysis or debug the code interactively. You can do this by launching a JupyterLab session inside the container. This gives you access to all the project's dependencies and output artifacts in a familiar notebook environment.
-
-This command overrides the default command in the Dockerfile to start a JupyterLab server instead of the API.
-
-**On Windows (Command Prompt):**
+Notebook dependencies are kept separate from the runtime image. For local notebook work, install them and launch JupyterLab from the repository root:
 
 ```bash
-docker run -it --rm -p 8888:8888 -v "%cd%":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+python -m pip install -r requirements-notebooks.txt
+jupyter lab
 ```
 
-**On Linux, macOS, or Windows (PowerShell):**
+### Local Checks
+
+Install development dependencies and run the same fast checks used by CI:
 
 ```bash
-docker run -it --rm -p 8888:8888 -v "$(pwd)":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+python -m pip install -r requirements-dev.txt
+pytest
+ruff check .
+ruff format --check .
 ```
-
-After running the command, copy the URL from your terminal (which includes a security token) and paste it into your web browser to begin your session.
 
 -----
 
 ## Cloud Deployment on AWS App Runner
 
-This project's API and interactive UI have been successfully deployed to **AWS App Runner**, a fully managed service for containerized applications.  This provides a scalable, production-grade endpoint.
+This project's interactive UI has been successfully deployed to **AWS App Runner**, a fully managed service for containerized applications. This provides a scalable, managed public endpoint.
 
-The deployment workflow leverages a container-native approach.  The final Docker image, which bundles the application and all its dependencies, is first pushed to a private repository in **Amazon Elastic Container Registry (ECR)**.
+The deployment workflow leverages a container-native approach. The final Docker image, which bundles the application and all its dependencies, is first pushed to a private repository in **Amazon Elastic Container Registry (ECR)**.
 
-An AWS App Runner service is then configured to pull this image directly from the ECR repository.  This setup utilizes an **IAM role** to securely grant App Runner the necessary permissions for access.  The service is set for automatic deployments, meaning any new image pushed to ECR will trigger an update to the live application.  Finally, the service is configured to expose the correct container port (**`8000`** for the API or **`7860`** for the UI) to public traffic.
+An AWS App Runner service is then configured to pull this image directly from the ECR repository. This setup utilizes an **IAM role** to securely grant App Runner the necessary permissions for access. The service is set for automatic deployments, meaning any new image pushed to ECR will trigger an update to the live application. Finally, the service is configured to expose port **`7860`** for the Gradio UI.
 
 ## Project Structure
 
@@ -169,6 +171,9 @@ ReadmissionRiskAPI/
 │   ├── etl.py
 │   ├── evaluate.py
 │   ├── feature_engineering.py
+│   ├── inference.py
+│   ├── model_artifacts.py
+│   ├── pipeline.py
 │   ├── predict.py
 │   ├── train.py
 │   └── utils.py
@@ -177,7 +182,8 @@ ReadmissionRiskAPI/
 ├── app.py
 ├── Dockerfile
 ├── main.py
-├── pipeline.py
 ├── README.md
+├── requirements-dev.txt
+├── requirements-notebooks.txt
 └── requirements.txt
 ```
