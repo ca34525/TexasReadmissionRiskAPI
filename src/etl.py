@@ -25,7 +25,6 @@ from tqdm import tqdm
 # Import modules from our source directory
 from . import config, utils
 
-
 # --- 1. RESOURCE PARSING FUNCTIONS ---
 # Each function transforms a specific FHIR resource into a flat dictionary.
 
@@ -44,9 +43,7 @@ def parse_patient(resource: dict) -> dict:
         "BirthDate": resource.get("birthDate"),
         "DeathDate": resource.get("deceasedDateTime"),
         "SSN": utils.get_identifier(resource, "http://hl7.org/fhir/sid/us-ssn"),
-        "Drivers": utils.get_identifier(
-            resource, "urn:oid:2.16.840.1.113883.4.3.25"
-        ),
+        "Drivers": utils.get_identifier(resource, "urn:oid:2.16.840.1.113883.4.3.25"),
         "Passport": utils.get_identifier(
             resource, "http://standardhealthrecord.org/fhir/sid/passport-number"
         ),
@@ -134,9 +131,7 @@ def parse_condition(resource: dict) -> dict:
 def parse_procedure(resource: dict) -> dict:
     """Parses a FHIR Procedure resource."""
     code_info = utils.get_coding(resource.get("code"))
-    reason_info = utils.get_coding(
-        next(iter(resource.get("reasonCode", [])), None)
-    )
+    reason_info = utils.get_coding(next(iter(resource.get("reasonCode", [])), None))
     return {
         "Start": resource.get("performedPeriod", {}).get("start"),
         "Stop": resource.get("performedPeriod", {}).get("end"),
@@ -157,15 +152,11 @@ def parse_procedure(resource: dict) -> dict:
 def parse_medication(resource: dict) -> dict:
     """Parses a FHIR MedicationRequest resource."""
     code_info = utils.get_coding(resource.get("medicationCodeableConcept"))
-    reason_info = utils.get_coding(
-        next(iter(resource.get("reasonCode", [])), None)
-    )
+    reason_info = utils.get_coding(next(iter(resource.get("reasonCode", [])), None))
     return {
         "Start": resource.get("authoredOn"),
         "Stop": (
-            resource.get("dispenseRequest", {})
-            .get("validityPeriod", {})
-            .get("end")
+            resource.get("dispenseRequest", {}).get("validityPeriod", {}).get("end")
         ),
         "Patient": utils.get_clean_id(resource.get("subject")),
         "Payer": None,
@@ -193,9 +184,7 @@ def parse_medication(resource: dict) -> dict:
 
 def parse_encounter(resource: dict) -> dict:
     """Parses a FHIR Encounter resource."""
-    primary_type_coding = utils.get_coding(
-        next(iter(resource.get("type", [])), None)
-    )
+    primary_type_coding = utils.get_coding(next(iter(resource.get("type", [])), None))
     primary_reason_coding = utils.get_coding(
         next(iter(resource.get("reasonCode", [])), None)
     )
@@ -307,11 +296,9 @@ def process_file(file_path: Path) -> dict:
             for encounter in data["encounters"]:
                 if eob_data := eob_lookup.get(encounter["Id"]):
                     encounter["Payer"] = eob_data.get("Payer")
-                    encounter["Total_Claim_Cost"] = eob_data.get(
-                        "Total_Claim_Cost"
-                    )
-    except Exception:
-        pass  # Silently ignore files that fail to parse
+                    encounter["Total_Claim_Cost"] = eob_data.get("Total_Claim_Cost")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to process FHIR bundle: {file_path}") from exc
 
     return data
 
@@ -380,7 +367,7 @@ def initialize_database(con: duckdb.DuckDBPyConnection):
         );
     """
     )
-    print("✅ All tables created successfully.")
+    print("All tables created successfully.")
 
 
 # --- 4. MAIN EXECUTION SCRIPT ---
@@ -388,70 +375,74 @@ def initialize_database(con: duckdb.DuckDBPyConnection):
 
 def main():
     """Main function to run the entire ETL pipeline."""
-    # Ensure output directory exists
-    config.OUTPUT_DIR.mkdir(exist_ok=True)
-
-    print(f"Connecting to DuckDB database: {config.DB_FILE}")
-    con = duckdb.connect(str(config.DB_FILE), read_only=False)
-    initialize_database(con)
-
     print("Finding all FHIR JSON bundles...")
     fhir_files = list(config.FHIR_DIR.rglob("*.json"))
     if config.MAX_FILES_TO_PROCESS:
         fhir_files = fhir_files[: config.MAX_FILES_TO_PROCESS]
     total_files = len(fhir_files)
     print(f"Found {total_files:,} files to process.")
+    if not fhir_files:
+        raise FileNotFoundError(
+            f"No FHIR JSON bundles were found under {config.FHIR_DIR}"
+        )
 
-    file_chunks = [
-        fhir_files[i : i + config.BATCH_SIZE]
-        for i in range(0, total_files, config.BATCH_SIZE)
-    ]
-    num_chunks = len(file_chunks)
-    print(
-        f"Processing in {num_chunks} batches of up to {config.BATCH_SIZE} files."
-    )
+    config.OUTPUT_DIR.mkdir(exist_ok=True)
+    print(f"Connecting to DuckDB database: {config.DB_FILE}")
+    con = duckdb.connect(str(config.DB_FILE), read_only=False)
+    try:
+        initialize_database(con)
+        file_chunks = [
+            fhir_files[i : i + config.BATCH_SIZE]
+            for i in range(0, total_files, config.BATCH_SIZE)
+        ]
+        num_chunks = len(file_chunks)
+        print(f"Processing in {num_chunks} batches of up to {config.BATCH_SIZE} files.")
+        print(f"Using {config.CPU_COUNT} worker processes.")
 
-    print(f"Using {config.CPU_COUNT} worker processes.")
-
-    for i, chunk in enumerate(file_chunks):
-        print(f"\n--- Processing Batch {i+1}/{num_chunks} ({len(chunk)} files) ---")
-
-        with multiprocessing.Pool(processes=config.CPU_COUNT) as pool:
-            results = list(
-                tqdm(pool.imap_unordered(process_file, chunk), total=len(chunk))
+        for i, chunk in enumerate(file_chunks):
+            print(
+                f"\n--- Processing Batch {i + 1}/{num_chunks} ({len(chunk)} files) ---"
             )
 
-        batch_data = {
-            "patients": [
-                item for res in results for item in res.get("patients", [])
-            ],
-            "encounters": [
-                item for res in results for item in res.get("encounters", [])
-            ],
-            "conditions": [
-                item for res in results for item in res.get("conditions", [])
-            ],
-            "procedures": [
-                item for res in results for item in res.get("procedures", [])
-            ],
-            "medications": [
-                item for res in results for item in res.get("medications", [])
-            ],
-        }
+            with multiprocessing.Pool(processes=config.CPU_COUNT) as pool:
+                results = list(
+                    tqdm(
+                        pool.imap_unordered(process_file, chunk),
+                        total=len(chunk),
+                    )
+                )
 
-        for name, data_list in batch_data.items():
-            if data_list:
-                print(f"  Inserting {len(data_list):,} records into '{name}'...")
-                df = pd.DataFrame(data_list)
-                con.append(name, df)
-            else:
-                print(f"  No data for '{name}' in this batch.")
+            batch_data = {
+                "patients": [
+                    item for res in results for item in res.get("patients", [])
+                ],
+                "encounters": [
+                    item for res in results for item in res.get("encounters", [])
+                ],
+                "conditions": [
+                    item for res in results for item in res.get("conditions", [])
+                ],
+                "procedures": [
+                    item for res in results for item in res.get("procedures", [])
+                ],
+                "medications": [
+                    item for res in results for item in res.get("medications", [])
+                ],
+            }
 
-        print(f"✅ Batch {i+1}/{num_chunks} complete.")
+            for name, data_list in batch_data.items():
+                if data_list:
+                    print(f"  Inserting {len(data_list):,} records into '{name}'...")
+                    con.append(name, pd.DataFrame(data_list))
+                else:
+                    print(f"  No data for '{name}' in this batch.")
 
-    print("\n🎉 All batches processed successfully!")
-    con.close()
-    print("Database connection closed.")
+            print(f"Batch {i + 1}/{num_chunks} complete.")
+
+        print("\nAll batches processed successfully.")
+    finally:
+        con.close()
+        print("Database connection closed.")
 
 
 if __name__ == "__main__":

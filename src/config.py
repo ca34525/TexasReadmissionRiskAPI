@@ -35,8 +35,8 @@ MAX_FILES_TO_PROCESS = None
 BATCH_SIZE = 5000
 
 # Number of CPU cores to use for parallel processing.
-# os.cpu_count() uses all available cores.
-CPU_COUNT = os.cpu_count()
+# ETL_WORKERS can cap parallelism in constrained local or CI environments.
+CPU_COUNT = max(1, int(os.getenv("ETL_WORKERS", os.cpu_count() or 1)))
 
 # --- MODELING & API CONFIGURATION ---
 MODEL_FILE = MODELS_DIR / "catboost_model.cbm"
@@ -44,9 +44,15 @@ TARGET_VARIABLE = "readmitted_within_30_days"
 
 # List of categorical features for the model
 CATEGORICAL_FEATURES = [
-    "gender", "race", "marital_status", "admission_reason",
-    "payer", "admission_day_of_week", "primary_diagnosis_code",
-    "provider_id", "payer_dx_interaction",
+    "gender",
+    "race",
+    "marital_status",
+    "admission_reason",
+    "payer",
+    "admission_day_of_week",
+    "primary_diagnosis_code",
+    "provider_id",
+    "payer_dx_interaction",
 ]
 
 # The decision threshold determined from the notebook analysis.

@@ -1,15 +1,45 @@
-# .dockerignore
-
-# Ignore the entire data directory - THIS IS THE MOST IMPORTANT ONE
+# Source data and local CI artifacts
 data/
+sample_data/
+.ci/
 
-# Python virtual environments
+# Exploratory and generated application state
+notebooks/
+catboost_info/
+.gradio/
+.jupyter/
+
+# Python environments, caches, and build output
 .venv/
 venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
 
-# Python cache files
-__pycache__/
-*.pyc
-
-# Ignore Git directory
+# Repository and editor metadata
 .git/
+.github/
+.devcontainer/
+.idea/
+.vscode/
+.agents/
+.codex/
+AGENTS.md
+
+# Local environment and operating-system files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Keep output/ and models/ available to manual artifact publishing.

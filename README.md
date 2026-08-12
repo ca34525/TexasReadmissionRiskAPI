@@ -1,183 +1,272 @@
 # Texas Hospital Readmission Prediction
 
-This project demonstrates a complete, end-to-end workflow for predicting 30-day hospital readmissions. It begins with raw synthetic FHIR data and uses a containerized Python application to perform ETL, feature engineering, model training, and finally, deployment as a real-time REST API.
+[![CI for Readmission Prediction API](https://github.com/ca34525/TexasReadmissionRiskAPI/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/ca34525/TexasReadmissionRiskAPI/actions/workflows/ci-cd.yml)
 
-The project has been refactored from an initial exploratory notebook environment into a reproducible, script-based, and containerized application with automated CI/CD.
+An end-to-end Python demonstration of 30-day hospital readmission prediction using synthetic Synthea FHIR data. The repository covers FHIR ETL, DuckDB feature engineering, CatBoost training and evaluation, a FastAPI service, a Gradio interface, Docker, and automated checks.
 
------
+> [!IMPORTANT]
+> This project uses synthetic patient data and is intended for portfolio, educational, and engineering-demonstration purposes only. It has not been clinically validated and must not be used for patient care, diagnosis, triage, or other clinical decisions.
 
-## Where to Start
+## What the repository demonstrates
 
-There are two great ways to get familiar with this project, depending on your goal.
+- A batch pipeline that converts raw FHIR bundles into a DuckDB database and a model-ready Parquet dataset.
+- A matched CatBoost model and threshold metadata pair for repeatable serving.
+- Two serving paths: a JSON API in `main.py` and an interactive Gradio UI in `app.py`.
+- ID-based inference from a generated DuckDB database and payload-based inference without a database lookup.
+- Automated unit, ETL integration, container, and smoke-test infrastructure.
+- Narrative notebooks documenting the exploratory work that preceded the production modules in `src/`.
 
-* **(On Pause) For the quickest path to see the model in action**, use the live, interactive demo deployed on AWS App Runner. This UI lets you get real-time predictions without running any code.
-    **Access the live demo here:** **[https://pvv8v4igm6.us-east-1.awsapprunner.com/](https://pvv8v4igm6.us-east-1.awsapprunner.com/)**
+Core stack: Python 3.10, DuckDB, pandas, CatBoost, FastAPI, Gradio, Docker, pytest, and GitHub Actions.
 
-* **To understand the "why" behind the project**, the Jupyter notebooks are the best resource. They provide a detailed, narrative-style walkthrough of the exploratory data analysis (EDA), feature selection, and model tuning process.
+## Architecture
 
------
+```mermaid
+flowchart LR
+    fhir["Synthetic Synthea FHIR bundles"] --> etl["ETL<br/>src/etl.py"]
+    etl --> db["DuckDB<br/>output/synthea_fhir.duckdb"]
+    db --> features["Feature engineering<br/>src/feature_engineering.py"]
+    features --> parquet["Parquet feature dataset"]
+    parquet --> training["CatBoost training and evaluation"]
+    training --> artifacts["Model plus threshold metadata<br/>models/"]
+    db --> idlookup["ID-based feature lookup<br/>src/predict.py"]
+    payload["Interactive JSON or form input"] --> serving["FastAPI or Gradio"]
+    idlookup --> serving
+    artifacts --> serving
+```
 
-## Data Generation
+The target, `readmitted_within_30_days`, is derived from the next inpatient admission after discharge. Future admission data is used to construct the target, not as a serving-time predictor.
 
-The raw data is generated using **Synthea™**, an open-source patient population simulator. To replicate the dataset, execute the following command from the root of the Synthea project directory.
+## Quick start without Docker
+
+Run commands from the repository root. Python 3.10 is the supported version.
+
+```bash
+python -m venv .venv
+
+# macOS or Linux
+source .venv/bin/activate
+
+# Windows PowerShell (use this instead of the line above)
+.venv\Scripts\Activate.ps1
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+```
+
+`requirements.txt` contains application and pipeline dependencies.
+`requirements-dev.txt` adds the test and lint tools. To work through the
+exploratory notebooks, install `requirements-notebooks.txt` instead.
+
+### Gradio UI
+
+The committed model artifacts are enough to use the interactive form:
+
+```bash
+python app.py
+```
+
+Open [http://127.0.0.1:7860](http://127.0.0.1:7860). The historical-ID tab additionally requires `output/synthea_fhir.duckdb`, which is created by the pipeline; its encounter choices are populated from that database at startup.
+
+### FastAPI service
+
+Start the API explicitly with Uvicorn:
+
+```bash
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+`GET /health/live` confirms that the API process is running. `GET /health/ready` verifies both the model artifacts and the ID-based prediction database; it returns `503` when the database has not yet been generated, even though payload-based predictions can still use an available model.
+
+Example interactive prediction request:
+
+```bash
+curl --request POST "http://127.0.0.1:8000/predict/interactive" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "length_of_stay": 7,
+    "age_at_admission": 50,
+    "gender": "male",
+    "race": "White",
+    "marital_status": "M",
+    "admission_reason": "Encounter for problem (procedure)",
+    "payer": "Medicare",
+    "total_claim_cost": 26483,
+    "income": 74739,
+    "admission_day_of_week": "Tuesday",
+    "primary_diagnosis_code": "424132000",
+    "provider_id": "us-npi|9999868992",
+    "prior_admissions_last_year": 2,
+    "num_diagnoses": 1,
+    "num_procedures": 9,
+    "num_medications": 1
+  }'
+```
+
+The response has this shape; the probability and prediction below are illustrative:
+
+```json
+{
+  "readmission_probability": 0.42,
+  "prediction": 0,
+  "threshold": 0.7
+}
+```
+
+`GET /predict/{encounter_id}` uses the same response fields and adds `encounter_id`, but it requires the generated DuckDB database.
+
+## Run the data pipeline
+
+The canonical entry point is:
+
+```bash
+python -m src.pipeline
+```
+
+The command runs ETL, feature engineering, model training, and evaluation in sequence. It writes generated data under `output/` and replaces the matched artifacts in `models/`, so review model changes before committing them.
+
+### Use the tracked synthetic fixture set
+
+Set `FHIR_PATH` to `sample_data/` before running the pipeline.
+Set `ETL_WORKERS` to a positive integer if you need to limit parallel parsing.
+
+```bash
+# macOS or Linux
+FHIR_PATH=sample_data python -m src.pipeline
+```
+
+```powershell
+# Windows PowerShell
+$env:FHIR_PATH = "sample_data"
+python -m src.pipeline
+Remove-Item Env:FHIR_PATH
+```
+
+### Generate a larger synthetic dataset
+
+The original reference dataset was generated with [Synthea](https://github.com/synthetichealth/synthea) using a fixed seed:
 
 ```bash
 java -jar synthea-with-dependencies.jar Texas -p 100000 -s 42 --exporter.fhir.use_us_core_ig true --exporter.csv.export true --exporter.fhir.export true
 ```
 
-Place the generated `fhir` output folder into the `data/` directory of this project.
+Place the generated FHIR directory at `data/fhir/`, then run `python -m src.pipeline`. The `data/` and `output/` directories are intentionally excluded from version control.
 
+### Data and artifact policy
 
-## Project Status & Workflow
+| Path | Purpose | Version-control policy |
+| --- | --- | --- |
+| `sample_data/` | Bounded, synthetic FHIR fixture set used for portable integration work | Tracked |
+| `data/` | Locally generated raw Synthea exports | Ignored |
+| `output/` | Generated DuckDB, Parquet, test-set, and evaluation outputs | Ignored |
+| `models/catboost_model.cbm` | Model loaded by both serving paths | Tracked intentionally |
+| `models/model_metadata.json` | Decision threshold paired with the model | Tracked intentionally |
 
-The project is organized into four main components: a batch pipeline for model training, a real-time API for serving predictions, a CI/CD pipeline for automation, and an interactive UI for user-friendly access.
+Treat the two files in `models/` as a matched pair. The committed metadata currently sets the decision threshold to `0.7`; that value is part of this demonstration and is not a clinically validated operating point.
 
-### Part I: Batch Training Pipeline
+## Docker
 
-The core logic is organized into a modular Python package (`src/`) and managed by an orchestration script (`pipeline.py`). This automated pipeline executes the following stages in sequence:
-
-1.  **ETL (`src/etl.py`):** A parallelized pipeline parses raw FHIR JSON bundles, extracts relevant clinical and demographic data, and loads the clean, structured data into a **DuckDB** database.
-2.  **Feature Engineering (`src/feature_engineering.py`):** SQL queries are executed against the DuckDB database to create the final analytical dataset. This step engineers the target variable (`readmitted_within_30_days`) and a rich feature set.
-3.  **Model Training (`src/train.py`):** This script trains a weighted **CatBoost** classifier on the feature-engineered data. It saves the trained model and a metadata file containing the optimal decision threshold.
-4.  **Evaluation (`src/evaluate.py`):** Using the saved artifacts, this final step generates a performance report and a confusion matrix on a hold-out test set to provide a clear assessment of the model.
-
-### Part II: Real-Time Prediction API
-
-A **FastAPI** application (`main.py`) serves the trained model through a REST endpoint.
-
-1.  **Serving Layer (`main.py`):** This script loads the pre-trained CatBoost model and exposes a simple web endpoint.
-2.  **Prediction Logic (`src/predict.py`):** This module contains the core logic to fetch data for a single patient encounter from the database, apply the *exact same* feature engineering steps used in training, and generate a real-time risk score.
-3.  **Containerization (`Dockerfile`):** The entire application, including the API and all dependencies, is containerized with Docker, ensuring a consistent and reproducible environment for deployment.
-
-### Part III: Continuous Integration (CI/CD)
-
-This project is configured with a complete CI/CD pipeline using **GitHub Actions**. On every push to the `main` branch, the workflow automatically performs:
-
-  * **Multi-Stage Testing:** Runs fast unit tests, executes the full training pipeline on a sample dataset for integration testing, and performs a smoke test on the live API server.
-  * **Build & Publish:** If all tests pass, it builds the master Docker image.
-  * **Versioning:** The image is tagged with the unique Git commit hash and pushed to **GitHub Container Registry (GHCR)**, ensuring a versioned, deployment-ready artifact is always available.
-
-### Part IV: Interactive User Interface (UI)
-
-A **Gradio** application (`app.py`) provides a user-friendly web interface for interacting with the trained model, making it accessible to non-technical stakeholders.
-
-1.  **UI Layer (`app.py`):** This script loads the same trained model and metadata, creating a tabbed interface for predictions.
-2.  **Two Prediction Modes:**
-      * **Interactive Prediction:** A detailed form where users can input individual patient and encounter features to receive a real-time risk classification and probability.
-      * **Predict from ID:** A dropdown menu pre-populated with known `encounter_id`s, allowing users to quickly see predictions for historical data.
-
------
-
-## How to Use This Project
-
-The entire project is managed with Docker for complete reproducibility.
-
-### Prerequisites
-
-  * Docker installed and running on your machine.
-  * Synthea™-generated data placed in the `./data/` directory (see "Data Generation" section).
-
-### Step 1: Build the Master Docker Image
-
-First, build the Docker image that contains all dependencies for both the pipeline and the API. This command only needs to be run once.
+The current `Dockerfile` defaults to the Gradio UI on port `7860`. FastAPI is available from the same image by overriding the container command. A clean checkout can be built directly; the image creates empty artifact directories when generated output is not present.
 
 ```bash
-docker build -t readmission-api .
+docker build -t texas-readmission-demo .
 ```
 
-### Step 2: Run the Training Pipeline
-
-Next, run the end-to-end training pipeline inside the container. This will execute the ETL, feature engineering, training, and evaluation steps. The process will create the DuckDB database in `output/` and the trained model in `models/`, which are required for the API and UI to function.
+Start the default Gradio UI:
 
 ```bash
-docker run --rm -v ./data:/app/data -v ./output:/app/output -v ./models:/app/models readmission-api python pipeline.py
+docker run --rm -p 7860:7860 texas-readmission-demo
 ```
 
-*Note: We use Docker volumes (`-v`) to ensure that the `output` and `models` generated inside the container are saved to your local machine.*
-
-### Step 3: Run the Prediction API
-
-Once the pipeline has successfully run and created the model, you can start the API server.
+Start FastAPI instead:
 
 ```bash
-docker run --rm -p 8000:8000 -v ./output:/app/output -v ./models:/app/models readmission-api
+docker run --rm -p 8000:8000 texas-readmission-demo python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-The API will now be running and accessible.
-
-### Step 4: Interact with the API
-
-You can now get real-time predictions.
-
-  * **Interactive Docs (Recommended):** Open your web browser and navigate to **[http://localhost:7860/](http://localhost:7860/)**. This interface allows you to test the endpoint directly.
-  * **Command Line (`curl`):** Use a valid `encounter_id` from your dataset to get a prediction.
-    ```bash
-    curl http://127.0.0.1:8000/predict/your-encounter-id-here
-    ```
-
-### Step 5: Launch the Interactive UI (Alternative)
-
-As an alternative to the raw API, you can launch the Gradio web interface to interact with the model.
+To generate artifacts from the tracked fixture set inside the container, use bind mounts so the results persist on the host. This command also replaces the host model pair:
 
 ```bash
-docker run --rm -p 7860:7860 -v ./output:/app/output -v ./models:/app/models readmission-api python app.py
+docker run --rm -e FHIR_PATH=/app/data -v "${PWD}/sample_data:/app/data:ro" -v "${PWD}/output:/app/output" -v "${PWD}/models:/app/models" texas-readmission-demo python -m src.pipeline
 ```
 
-Open your web browser and navigate to **[http://127.0.0.1:7860](http://127.0.0.1:7860)** to use the application.
-
-### Running an Interactive Analysis Session (Optional)
-
-While the project is automated, you may need to perform ad-hoc data analysis or debug the code interactively. You can do this by launching a JupyterLab session inside the container. This gives you access to all the project's dependencies and output artifacts in a familiar notebook environment.
-
-This command overrides the default command in the Dockerfile to start a JupyterLab server instead of the API.
-
-**On Windows (Command Prompt):**
+When serving newly generated artifacts, mount `output/` and the model pair rather than using the copies baked into the image. For example:
 
 ```bash
-docker run -it --rm -p 8888:8888 -v "%cd%":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+docker run --rm -p 7860:7860 -v "${PWD}/output:/app/output:ro" -v "${PWD}/models:/app/models:ro" texas-readmission-demo
 ```
 
-**On Linux, macOS, or Windows (PowerShell):**
+## Tests
+
+Run the default credential-free unit suite without external services or
+generated artifacts:
 
 ```bash
-docker run -it --rm -p 8888:8888 -v "$(pwd)":/app readmission-api jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
 ```
 
-After running the command, copy the URL from your terminal (which includes a security token) and paste it into your web browser to begin your session.
+After generating a database from `sample_data/`, run the portable ETL integrity checks:
 
------
-
-## Cloud Deployment on AWS App Runner
-
-This project's API and interactive UI have been successfully deployed to **AWS App Runner**, a fully managed service for containerized applications.  This provides a scalable, production-grade endpoint.
-
-The deployment workflow leverages a container-native approach.  The final Docker image, which bundles the application and all its dependencies, is first pushed to a private repository in **Amazon Elastic Container Registry (ECR)**.
-
-An AWS App Runner service is then configured to pull this image directly from the ECR repository.  This setup utilizes an **IAM role** to securely grant App Runner the necessary permissions for access.  The service is set for automatic deployments, meaning any new image pushed to ECR will trigger an update to the live application.  Finally, the service is configured to expose the correct container port (**`8000`** for the API or **`7860`** for the UI) to public traffic.
-
-## Project Structure
-
+```bash
+python -m pytest -m "not full_dataset" tests/test_etl.py
 ```
-ReadmissionRiskAPI/
-├── data/
+
+The exact-count reference checks are intentionally opt-in. Run them only when the complete reference dataset is available:
+
+```bash
+python -m pytest -m full_dataset tests/test_etl.py
+```
+
+The GitHub Actions workflow is defined in `.github/workflows/ci-cd.yml`; its current status is shown by the badge at the top of this page.
+
+## Project structure
+
+```text
+TexasReadmissionRiskAPI/
+├── .github/workflows/
+│   ├── ci-cd.yml              # Credential-free pull-request and main CI
+│   └── publish-image.yml      # Optional, manually dispatched image publish
 ├── models/
-├── notebooks/
-├── output/
+│   ├── catboost_model.cbm
+│   └── model_metadata.json
+├── notebooks/                 # Exploratory and narrative analysis
+├── sample_data/               # Tracked synthetic FHIR fixtures
 ├── src/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── etl.py
-│   ├── evaluate.py
-│   ├── feature_engineering.py
-│   ├── predict.py
-│   ├── train.py
-│   └── utils.py
-├── .dockerignore
-├── .gitignore
-├── app.py
+│   ├── config.py              # Paths, feature lists, and threshold
+│   ├── etl.py                 # FHIR-to-DuckDB ETL
+│   ├── evaluate.py            # Hold-out evaluation artifacts
+│   ├── feature_engineering.py # Target and feature construction
+│   ├── inference.py           # Shared serving-time feature preparation
+│   ├── model_artifacts.py     # Shared model and metadata loading
+│   ├── pipeline.py            # Canonical orchestration entry point
+│   ├── predict.py             # ID-based feature lookup and prediction
+│   ├── train.py               # CatBoost training and artifact output
+│   └── utils.py               # FHIR parsing helpers
+├── tests/
+├── app.py                     # Gradio entry point (port 7860)
+├── main.py                    # FastAPI application (port 8000 via Uvicorn)
 ├── Dockerfile
-├── main.py
-├── pipeline.py
-├── README.md
-└── requirements.txt
+├── pyproject.toml             # Focused Ruff configuration
+├── pytest.ini
+├── requirements-dev.txt
+├── requirements-notebooks.txt
+├── requirements.txt
+└── README.md
 ```
+
+`data/` and `output/` appear after local data generation and are not committed.
+
+## Optional AWS deployment history
+
+An earlier version of the demo was hosted on AWS App Runner, with a container image in Amazon ECR, IAM-based access, and generated artifacts staged in Amazon S3. That deployment is paused, and this repository does not advertise a live public endpoint.
+
+Normal pull-request and `main` CI is credential-free. The separate `publish-image.yml` workflow is manual and retains the optional artifact-download and GHCR publishing path; it requires configured repository secrets. It does not deploy or modify AWS infrastructure. AWS is not required for local development or evaluation of the project.
+
+## Limitations
+
+- All data is synthetic; results do not establish performance on real patients or health systems.
+- The repository is a demonstration architecture, not regulated or validated clinical decision-support software.
+- Reproducing the original large-data experiment requires substantial compute and storage; `sample_data/` is intended for portable pipeline checks, not model-quality evaluation.
