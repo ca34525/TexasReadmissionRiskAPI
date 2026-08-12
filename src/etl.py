@@ -149,9 +149,87 @@ def parse_procedure(resource: dict) -> dict:
     }
 
 
-def parse_medication(resource: dict) -> dict:
+def _medication_reference_keys(reference: str | None) -> list[str]:
+    """Return ordered aliases for an in-bundle Medication reference."""
+    if not isinstance(reference, str) or not reference.strip():
+        return []
+
+    normalized = reference.strip().rstrip("/")
+    keys = [normalized]
+
+    if normalized.startswith("urn:uuid:"):
+        keys.append(normalized.removeprefix("urn:uuid:"))
+
+    path_parts = [part for part in normalized.split("/") if part]
+    medication_indexes = [
+        index for index, part in enumerate(path_parts) if part == "Medication"
+    ]
+    if medication_indexes:
+        medication_index = medication_indexes[-1]
+        if medication_index + 1 < len(path_parts):
+            medication_id = path_parts[medication_index + 1]
+            keys.extend([f"Medication/{medication_id}", medication_id])
+
+    return list(dict.fromkeys(keys))
+
+
+def _index_bundle_medications(entries: list[dict]) -> dict[str, dict]:
+    """Index Medication resources by full URL and common FHIR reference forms."""
+    medication_lookup = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
+        resource = entry.get("resource", {})
+        if (
+            not isinstance(resource, dict)
+            or resource.get("resourceType") != "Medication"
+        ):
+            continue
+
+        aliases = _medication_reference_keys(entry.get("fullUrl"))
+        medication_id = resource.get("id")
+        if isinstance(medication_id, str) and medication_id:
+            aliases.extend(
+                [
+                    medication_id,
+                    f"Medication/{medication_id}",
+                    f"urn:uuid:{medication_id}",
+                ]
+            )
+
+        for alias in aliases:
+            medication_lookup.setdefault(alias, resource)
+
+    return medication_lookup
+
+
+def _resolve_medication_reference(
+    medication_reference: dict | None, medication_lookup: dict[str, dict]
+) -> dict | None:
+    """Resolve a MedicationReference against resources in the current bundle."""
+    if not isinstance(medication_reference, dict):
+        return None
+
+    for key in _medication_reference_keys(medication_reference.get("reference")):
+        if medication := medication_lookup.get(key):
+            return medication
+    return None
+
+
+def parse_medication(
+    resource: dict, medication_lookup: dict[str, dict] | None = None
+) -> dict:
     """Parses a FHIR MedicationRequest resource."""
-    code_info = utils.get_coding(resource.get("medicationCodeableConcept"))
+    codeable_concept = resource.get("medicationCodeableConcept")
+    code_info = utils.get_coding(codeable_concept)
+    if not code_info and medication_lookup:
+        medication = _resolve_medication_reference(
+            resource.get("medicationReference"), medication_lookup
+        )
+        if medication:
+            code_info = utils.get_coding(medication.get("code"))
+
     reason_info = utils.get_coding(next(iter(resource.get("reasonCode", [])), None))
     return {
         "Start": resource.get("authoredOn"),
@@ -255,7 +333,10 @@ def process_file(file_path: Path) -> dict:
         with open(file_path, "rb") as f:
             bundle = orjson.loads(f.read())
 
-        for entry in bundle.get("entry", []):
+        bundle_entries = bundle.get("entry", [])
+        medication_lookup = _index_bundle_medications(bundle_entries)
+
+        for entry in bundle_entries:
             resource = entry.get("resource", {})
             if not resource:
                 continue
@@ -270,7 +351,9 @@ def process_file(file_path: Path) -> dict:
             elif resource_type == "Procedure":
                 data["procedures"].append(parse_procedure(resource))
             elif resource_type == "MedicationRequest":
-                data["medications"].append(parse_medication(resource))
+                data["medications"].append(
+                    parse_medication(resource, medication_lookup=medication_lookup)
+                )
             elif resource_type == "ExplanationOfBenefit":
                 eobs_raw.append(parse_explanation_of_benefit(resource))
             elif resource_type == "Observation":
